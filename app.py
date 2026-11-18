@@ -43,6 +43,7 @@ import round_detector
 from live import LiveStream, LiveFrameSource
 import reels
 import editor_routes
+import clip_routes
 import storage
 import webutil
 from common import (JOB_ID, JOBS, JOBS_LOCK, ANALYSIS_SLOTS, RENDER_SLOTS, allowed_url, charge_failed,
@@ -63,6 +64,7 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024   # forms and JSON bodies are tiny
 # The editor's body limits run first (its uploads are big), then accounts and CSRF.
 app.register_blueprint(editor_routes.bp)
+app.register_blueprint(clip_routes.bp)      # the any-video clip finder
 auth.init_app(app)
 
 SCAN_WORKERS = env_int("RECAPLY_SCAN_WORKERS", os.cpu_count() or 4)
@@ -780,7 +782,12 @@ def app_home():
               "platform": "twitch" if "twitch.tv" in (v.get("url") or "") else "youtube"}
              for k, v in JOBS.items() if auth.can_access(v.get("owner"))),
             key=lambda j: j["created"], reverse=True)[:12]
-    return render_template("index.html", recent=recent, any_site="*" in ALLOWED_HOSTS)
+    for j in clip_routes.recent_jobs():
+        recent.append({**j, "count": 0, "clutches": 0, "aces": 0, "length": "", "thumb": "", "live": False,
+                       "mode": "clips", "platform": ""})
+    recent = sorted(recent, key=lambda j: j["created"], reverse=True)[:12]
+    return render_template("index.html", recent=recent, any_site="*" in ALLOWED_HOSTS,
+                           profiles=clip_routes.profile_choices(), desktop_app=DESKTOP)
 
 
 @app.route("/start", methods=["POST"])
@@ -1125,6 +1132,7 @@ def reels_zip():
 if __name__ != "__mp_main__":
     load_saved_jobs()
     editor_routes.load_projects()
+    clip_routes.resume_jobs()
     if RETENTION_HOURS > 0:
         threading.Thread(target=cleanup_loop, daemon=True).start()
 

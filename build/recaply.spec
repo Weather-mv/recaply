@@ -5,7 +5,7 @@
 # build.ps1 checks the finished folder for them and stops if it finds either.
 import os
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 STAGE = os.path.join(SPECPATH, "stage")          # made by build.ps1: bin/ (ffmpeg, ffprobe, node), app.env
@@ -21,7 +21,10 @@ datas = [
 binaries = []
 hiddenimports = ["app", "editor_routes", "desktop_auth", "captions", "reels", "editor", "live", "killer_id",
                  "round_detector", "pipeline", "waitress", "webview.platforms.edgechromium",
-                 "pystray._win32"]
+                 "pystray._win32", "clip_routes"]
+# The clipping core: profiles, signals and providers are looked up by name at runtime.
+# (rq is only for the Docker/server queue, never in the Windows app.)
+hiddenimports += [m for m in collect_submodules("recaply") if not m.endswith("rq_queue")]
 
 # Packages that load models, data files or native libraries at runtime.
 for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "rapidocr", "yt_dlp", "yt_dlp_ejs", "webview",

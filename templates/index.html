@@ -26,6 +26,10 @@
   .src-ic svg { width: 22px; height: 22px; }
   .url.yt .src-ic { color: #ff0033; transform: scale(1.1); }
   .url.tw .src-ic { color: #9146ff; transform: scale(1.1); }
+  .url.kick .src-ic { color: #53fc18; transform: scale(1.1); }
+  .url.file .src-ic { color: var(--accent); transform: scale(1.1); }
+  .url.drop { border-color: var(--accent); box-shadow: 0 0 0 5px rgb(var(--accent-rgb) / .14), var(--shadow); }
+  .legal { margin: 14px 6px 0; font-size: 14.5px; color: var(--muted); line-height: 1.5; }
   .url input { flex: 1; min-width: 0; height: 100%; background: none; border: none; color: var(--text); font: inherit; font-size: 17px; }
   .url input:focus { outline: none; }
   .url input::placeholder { color: var(--faint); }
@@ -48,6 +52,7 @@
   .toggle { cursor: pointer; }
   .toggle input { position: absolute; opacity: 0; pointer-events: none; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; }
 
   /* side: plan and shortcuts */
   .side { display: grid; gap: 14px; position: sticky; top: 92px; }
@@ -100,7 +105,7 @@
     .opt-head { flex-direction: column; align-items: stretch; }
     .opt-head.row { flex-direction: row; align-items: center; }
     .seg.detect { width: 100%; }
-    .grid2, .recent { grid-template-columns: minmax(0, 1fr); }
+    .grid2, .grid3, .recent { grid-template-columns: minmax(0, 1fr); }
     .sec-head { flex-direction: column; align-items: stretch; }
     .filter { width: 100%; }
   }
@@ -121,71 +126,67 @@
   <div class="dash">
     <div>
       <div class="hello">
-        <span class="kicker rise"><i></i>New recap</span>
+        <span class="kicker rise"><i></i>New clips</span>
         <h1 class="rise d1">{% if user.name %}Hey {{ user.name.split(' ')[0] }}, what{% else %}What{% endif %} are we clipping today?</h1>
-        <p class="rise d2">Paste a VOD or a live stream. Recaply finds every round, tags ACEs and clutches, and ranks the best ones.</p>
+        <p class="rise d2">Paste a stream, VOD, podcast or any video, or drop in a file. Recaply finds the best moments, scores them and cuts them into clips.</p>
       </div>
       {% if not ent.can_create %}
       <div class="upsell rise d2"><b>{{ 'Trial ended' if ent.plan == 'free' else 'Plan limit reached' }}</b><span>{{ ent.reason }}</span><a class="btn sm" href="/pricing">See plans</a></div>
       {% endif %}
 
-      <form action="/start" method="post" id="form" class="composer rise d3" novalidate>
+      <form action="/clips/start" method="post" id="form" class="composer rise d3" novalidate>
         <div class="url" id="url-box">
           <span class="src-ic" id="src-ic" aria-hidden="true"></span>
-          <input type="url" name="url" id="url" placeholder="Paste a YouTube or Twitch link" autocomplete="off" autofocus>
+          <input type="text" name="url" id="url" placeholder="Paste a YouTube, Twitch or Kick link{{ ' or a file path' if desktop_app }}" autocomplete="off" autofocus spellcheck="false">
           <button type="button" class="mini" id="paste">Paste</button>
           <button type="button" class="mini" id="clear" hidden aria-label="Clear">Clear</button>
-          <button class="btn" type="submit" id="go"{% if not ent.can_create %} disabled{% endif %}>Create recap
+          <button type="button" class="mini" id="pick" title="Upload a video or audio file">Upload</button>
+          <input type="file" id="file" accept="video/*,audio/*,.mkv,.flv,.ts" hidden>
+          <button class="btn" type="submit" id="go"{% if not ent.can_create %} disabled{% endif %}>Find clips
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
         </div>
-        <div class="hint" id="hint">Works with full VODs and YouTube live streams. A 3-hour match takes about 2–3 minutes.</div>
+        <div class="hint" id="hint">Links, uploads{{ ' and files on this PC' if desktop_app }}. Only the audio is fetched to find moments; a 1-hour video takes a few minutes.</div>
+        <input type="hidden" name="detect" value="rounds" disabled id="detect">
 
         <div class="card opts">
           <div class="opt">
-            <div class="opt-head">
-              <div><b>Detection</b><span id="mode-desc">Clutches, multi-kills and intense rounds</span></div>
-              <div class="seg detect" id="seg">
-                <label class="on"><input type="radio" name="detect" value="rounds" checked>Rounds</label>
-                <label><input type="radio" name="detect" value="spikes">Loudness</label>
+            <div class="grid3">
+              <div>
+                <span class="label">Content</span>
+                <select class="field" name="profile" id="profile">
+                  <option value="auto" selected>Auto-detect</option>
+                  {% for p in profiles %}<option value="{{ p.key }}">{{ p.label }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="clips-only">
+                <span class="label">Clips</span>
+                <select class="field" name="count">
+                  <option value="5">Up to 5</option>
+                  <option value="10" selected>Up to 10</option>
+                  <option value="15">Up to 15</option>
+                  <option value="20">Up to 20</option>
+                </select>
+              </div>
+              <div class="clips-only">
+                <span class="label">Length</span>
+                <select class="field" name="length">
+                  <option value="auto" selected>Auto</option>
+                  <option value="short">15–30 s</option>
+                  <option value="medium">30–60 s</option>
+                  <option value="long">60–90 s</option>
+                </select>
               </div>
             </div>
           </div>
 
-          <div class="opt rounds-only">
+          <div class="opt rounds-only" hidden>
             <label class="opt-head row toggle">
-              <div><b>Read player names</b><span>ACE, 4K and 3K badges and who clutched</span></div>
+              <div><b>Read player names</b><span>ACE, 4K and 3K badges and who clutched (VCT broadcasts)</span></div>
               <input type="checkbox" name="names" value="on" checked><span class="sw"></span>
             </label>
           </div>
-
-          <div class="opt spikes-only">
-            <div class="grid2">
-              <div>
-                <span class="label">Sensitivity</span>
-                <select class="field" name="sensitivity">
-                  <option value="high">High (more clips)</option>
-                  <option value="medium" selected>Medium</option>
-                  <option value="low">Low (biggest only)</option>
-                </select>
-              </div>
-              <div>
-                <span class="label">Clip length</span>
-                <select class="field" name="clip_mode" id="clip_mode">
-                  <option value="round" selected>Full round (~1:45)</option>
-                  <option value="moment">Short moment (~15s)</option>
-                </select>
-              </div>
-              <div>
-                <span class="label">Seconds before</span>
-                <input class="field" type="number" name="pre_pad" id="pre_pad" value="90" min="0" max="180" step="1">
-              </div>
-              <div>
-                <span class="label">Seconds after</span>
-                <input class="field" type="number" name="post_pad" id="post_pad" value="15" min="0" max="60" step="1">
-              </div>
-            </div>
-          </div>
         </div>
+        <p class="legal">Only clip videos you own or have permission to use, and follow each platform's rules when you post them.</p>
       </form>
     </div>
 
@@ -212,12 +213,12 @@
   {% if recent %}
   <section id="recent">
     <div class="sec-head reveal">
-      <h2>Your recaps</h2>
+      <h2>Your projects</h2>
       {% if recent|length > 4 %}<input class="field filter" id="filter" type="search" placeholder="Filter by title">{% endif %}
     </div>
     <div class="recent" id="recent-list">
       {% for j in recent %}
-      <a class="card job reveal" href="/job/{{ j.id }}" data-title="{{ j.title|lower }}">
+      <a class="card job reveal" href="{{ '/clipjob/' if j.mode == 'clips' else '/job/' }}{{ j.id }}" data-title="{{ j.title|lower }}">
         <div class="thumb">
           {% if j.thumb %}<img src="{{ j.thumb }}" alt="" loading="lazy">
           {% else %}<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3 3 6v13h4v2h3l2-2h3l5-5V3H4zm15 10-3 3h-4l-2 2v-2H7V5h12v8zm-3-6h-2v5h2V7zm-5 0H9v5h2V7z"/></svg>{% endif %}
@@ -226,6 +227,7 @@
           <div class="t">{{ j.title }}</div>
           <div class="job-meta">
             {% if j.live %}<span class="pill live">Live</span>{% else %}<span class="pill {{ j.state }}">{{ j.state }}</span>{% endif %}
+            {% if j.mode == 'clips' %}<span>Clips</span>{% endif %}
             {% if j.count %}<span><b>{{ j.count }}</b> {{ 'rounds' if j.mode == 'rounds' else 'moments' }}</span>{% endif %}
             {% if j.aces %}<span class="ace">{{ j.aces }} ACE{{ '' if j.aces == 1 else 's' }}</span>{% endif %}
             {% if j.clutches %}<span><b>{{ j.clutches }}</b> clutches</span>{% endif %}
@@ -234,11 +236,11 @@
         </div>
       </a>
       {% endfor %}
-      <div class="no-match" id="no-match" hidden>No recaps match that filter.</div>
+      <div class="no-match" id="no-match" hidden>Nothing matches that filter.</div>
     </div>
   </section>
   {% else %}
-  <section id="recent"><div class="card empty-recent reveal"><b>No recaps yet</b>Paste your first VOD above and your recaps will show up here.</div></section>
+  <section id="recent"><div class="card empty-recent reveal"><b>Nothing here yet</b>Paste your first link above and your clips will show up here.</div></section>
   {% endif %}
 </div>
 
@@ -255,29 +257,34 @@
   const url = $("url"), box = $("url-box"), hint = $("hint");
   const DEFAULT_HINT = hint.textContent;
 
+  const DESKTOP = {{ 'true' if desktop_app else 'false' }};
+  ICONS.file = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9 5 3-5 3z"/></svg>';
+  const GOOD = ["yt", "tw", "kick", "file"];
   function classify(v) {
-    v = v.trim();
+    v = v.trim().replace(/^"|"$/g, "");
     if (!v) return { kind: "empty" };
-    if (/youtube\.com\/live\//i.test(v)) return { kind: "yt", msg: "YouTube live stream detected. Rounds appear as they finish" };
+    if (/youtube\.com\/live\//i.test(v)) return { kind: "yt", msg: "YouTube live stream (the VCT rounds profile follows it live)" };
     if (/youtube\.com\/(@[\w.-]+|channel\/[\w-]+|c\/[\w.-]+|user\/[\w.-]+)\/live\/?(\?|$)/i.test(v))
-      return { kind: "yt", msg: "Channel live link detected. Recaply follows whatever it's streaming now" };
-    if (/(youtube\.com\/(watch\?|shorts\/)|youtu\.be\/)/i.test(v)) return { kind: "yt", msg: "YouTube link detected (VOD or live)" };
+      return { kind: "yt", msg: "Channel live link (the VCT rounds profile follows it live)" };
+    if (/(youtube\.com\/(watch\?|shorts\/)|youtu\.be\/)/i.test(v)) return { kind: "yt", msg: "YouTube link detected" };
     if (/twitch\.tv\/videos\/\d+/i.test(v)) return { kind: "tw", msg: "Twitch VOD detected" };
     if (/twitch\.tv\//i.test(v)) return { kind: "bad", msg: "Use a Twitch VOD link (twitch.tv/videos/…), not a channel" };
-    if (/^https?:\/\/\S+\.\S+/i.test(v)) return ANY_SITE ? { kind: "other", msg: "Not YouTube or Twitch. It may still work if the site is supported" }
-                                                     : { kind: "bad", msg: "Only YouTube and Twitch VOD links are supported" };
-    return { kind: "bad", msg: "That doesn't look like a link" };
+    if (/kick\.com\/[\w-]+\/videos\/[\w-]+/i.test(v)) return { kind: "kick", msg: "Kick VOD detected" };
+    if (/kick\.com\//i.test(v)) return { kind: "bad", msg: "Use a Kick VOD link (kick.com/<channel>/videos/…)" };
+    if (/^https?:\/\/\S+\.\S+/i.test(v)) return ANY_SITE ? { kind: "other", msg: "Not YouTube, Twitch or Kick. It may still work if the site is supported" }
+                                                     : { kind: "bad", msg: "Only YouTube, Twitch and Kick links are supported" };
+    if (DESKTOP && /^([a-z]:\\|\\\\|\/)/i.test(v)) return { kind: "file", msg: "A file on this PC" };
+    return { kind: "bad", msg: DESKTOP ? "Paste a link or a file path, or use Upload" : "That doesn't look like a link" };
   }
   function onUrl() {
     const c = classify(url.value);
-    box.classList.toggle("yt", c.kind === "yt");
-    box.classList.toggle("tw", c.kind === "tw");
+    GOOD.forEach(k => box.classList.toggle(k, c.kind === k));
     box.classList.remove("bad");
-    $("src-ic").innerHTML = ICONS[c.kind === "yt" || c.kind === "tw" ? c.kind : "link"];
+    $("src-ic").innerHTML = ICONS[c.kind === "yt" || c.kind === "tw" || c.kind === "file" ? c.kind : "link"];
     $("paste").hidden = c.kind !== "empty";
     $("clear").hidden = c.kind === "empty";
     hint.textContent = c.msg || DEFAULT_HINT;
-    hint.className = "hint" + (c.kind === "yt" || c.kind === "tw" ? " ok" : c.kind === "bad" ? " bad" : "");
+    hint.className = "hint" + (GOOD.includes(c.kind) ? " ok" : c.kind === "bad" ? " bad" : "");
     return c;
   }
   url.addEventListener("input", onUrl);
@@ -288,42 +295,61 @@
   });
   onUrl();
 
-  const presets = { round: [90, 15], moment: [8, 5] };
-  $("clip_mode").addEventListener("change", e => {
-    const [pre, post] = presets[e.target.value];
-    $("pre_pad").value = pre; $("post_pad").value = post;
-  });
-
-  const form = $("form"), seg = $("seg");
+  const form = $("form"), profile = $("profile");
+  const isVct = () => profile.value === "valorant_vct";
   function showMode() {
-    const rounds = form.detect.value === "rounds";
-    seg.style.setProperty("--i", rounds ? 0 : 1);
-    seg.querySelectorAll("label").forEach(l => l.classList.toggle("on", l.querySelector("input").checked));
-    $("mode-desc").textContent = rounds ? "Clutches, multi-kills and intense rounds" : "Loud moments in any video";
-    document.querySelectorAll(".spikes-only").forEach(el => el.hidden = rounds);
-    document.querySelectorAll(".rounds-only").forEach(el => el.hidden = !rounds);
+    document.querySelectorAll(".rounds-only").forEach(el => el.hidden = !isVct());
+    document.querySelectorAll(".clips-only").forEach(el => el.style.visibility = isVct() ? "hidden" : "");
   }
-  form.querySelectorAll('input[name="detect"]').forEach(r => r.addEventListener("change", showMode));
+  profile.addEventListener("change", showMode);
   showMode();
 
   form.addEventListener("submit", e => {
     const c = onUrl();
-    if (c.kind === "empty" || c.kind === "bad") {
-      e.preventDefault();
-      box.classList.add("bad");
-      hint.className = "hint bad";
-      hint.textContent = c.kind === "empty" ? "Paste a VOD link first" : c.msg;
-      url.focus();
-      return;
-    }
-    // An unticked checkbox isn't submitted at all; send "off" explicitly.
-    if (!form.querySelector('input[name="names"]').checked) {
-      const h = document.createElement("input");
-      h.type = "hidden"; h.name = "names"; h.value = "off";
-      form.appendChild(h);
+    const bad = msg => { e.preventDefault(); box.classList.add("bad"); hint.className = "hint bad"; hint.textContent = msg; url.focus(); };
+    if (c.kind === "empty" || c.kind === "bad") return bad(c.kind === "empty" ? "Paste a link first, or upload a file" : c.msg);
+    if (isVct()) {
+      if (c.kind !== "yt" && c.kind !== "tw") return bad("VCT round scans need a YouTube or Twitch link");
+      form.action = "/start"; $("detect").disabled = false;
+      // An unticked checkbox isn't submitted at all; send "off" explicitly.
+      if (!form.querySelector('input[name="names"]').checked) {
+        const h = document.createElement("input");
+        h.type = "hidden"; h.name = "names"; h.value = "off";
+        form.appendChild(h);
+      }
+    } else {
+      form.action = "/clips/start"; $("detect").disabled = true;
     }
     $("go").disabled = true; $("go").innerHTML = '<span class="spin"></span>Starting';
   });
+
+  // Upload (button or drag and drop) goes straight into a clip job
+  function upload(file) {
+    if (!file) return;
+    if (isVct()) { hint.className = "hint bad"; hint.textContent = "VCT round scans need a link; pick another content type for files"; return; }
+    const fd = new FormData();
+    fd.append("file", file);
+    ["profile", "count", "length"].forEach(n => fd.append(n, form.elements[n].value));
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/clips/upload");
+    xhr.upload.onprogress = ev => {
+      if (ev.lengthComputable) { hint.className = "hint ok"; hint.textContent = `Uploading ${file.name}: ${Math.round(100 * ev.loaded / ev.total)}%`; }
+    };
+    xhr.onload = () => {
+      let j = {}; try { j = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status === 200 && j.id) { location.href = "/clipjob/" + j.id; return; }
+      hint.className = "hint bad"; hint.textContent = j.error || "Upload failed";
+      $("pick").disabled = false;
+    };
+    xhr.onerror = () => { hint.className = "hint bad"; hint.textContent = "Upload failed (connection)"; $("pick").disabled = false; };
+    $("pick").disabled = true;
+    xhr.send(fd);
+  }
+  $("pick").addEventListener("click", () => $("file").click());
+  $("file").addEventListener("change", e => upload(e.target.files[0]));
+  ["dragenter", "dragover"].forEach(t => box.addEventListener(t, e => { e.preventDefault(); box.classList.add("drop"); }));
+  ["dragleave", "drop"].forEach(t => box.addEventListener(t, () => box.classList.remove("drop")));
+  box.addEventListener("drop", e => { e.preventDefault(); if (e.dataTransfer.files.length) upload(e.dataTransfer.files[0]); });
 
   // Recent: relative times and quick filter
   const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });

@@ -72,7 +72,7 @@ LOCAL_ONLY = HOST in ("127.0.0.1", "localhost", "::1")
 
 # Hosts a VOD link may point at. "*" allows any site yt-dlp supports.
 ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get(
-    "RECAPLY_ALLOWED_HOSTS", "youtube.com,youtu.be,twitch.tv").split(",") if h.strip()]
+    "RECAPLY_ALLOWED_HOSTS", "youtube.com,youtu.be,twitch.tv,kick.com").split(",") if h.strip()]
 
 # Public address of the site (for payment return links); guessed from the request when empty.
 PUBLIC_URL = os.environ.get("RECAPLY_PUBLIC_URL", "").rstrip("/")

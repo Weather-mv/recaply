@@ -1,11 +1,16 @@
-# Recaply — Valorant highlights on autopilot
+# Recaply: AI clips from any long video
 
-Recaply finds every round in a Valorant VOD or live stream, tags the ACEs and
-clutches, and turns the best plays into captioned 9:16 reels. It has two parts:
+Recaply finds the best moments in a stream, VOD, podcast or any long video,
+scores them (0-100, with a reason), and cuts them into short clips. It works
+for gaming (any game: GTA, Valorant, shooters), podcasts and interviews, IRL
+streams and talks. Valorant VCT broadcasts keep their dedicated round scanner
+(ACEs, clutches, multi-kills) as one content profile among many.
 
-- **The Windows app** (`desktop.py`, installed as `Recaply.exe`). Recaps,
-  downloads, reels and the editor all run on the user's own PC, and every
-  video stays there, so there are no uploads and no storage limits.
+It has three parts:
+
+- **The Windows app** (`desktop.py`, installed as `Recaply.exe`). Clip
+  finding, recaps, downloads, reels and the editor all run on the user's own
+  PC, and every video stays there, so there are no uploads and no storage limits.
 - **The online service** (`cloud.py`): the product website, sign-up and
   login, the three plans (see [Accounts and plans](#accounts-and-plans)),
   Stripe payments, and a small API the app signs in through. It never touches
@@ -17,17 +22,165 @@ clutches, and turns the best plays into captioned 9:16 reels. It has two parts:
 
 What the app does:
 
-1. Paste a YouTube/Twitch VOD link of a VCT broadcast, or a YouTube live
-   stream (rounds are listed as they finish).
-2. It lists every round with its timestamp (click to open the VOD there),
-   kill count and badges: ACEs, 4Ks and 3Ks (with the player's name), clutches
-   (1vX won, or the broadcast's own CLUTCH banner), multi-kill bursts and
-   crowd hype. Tabs filter to **ACEs**, clutches or multi-kills. The best
-   rounds and all clutches are pre-selected.
-3. Set how many seconds before the round start each clip should begin
-   (default 12s; 0/5/10/15/30 quick buttons), pick clips, and download them in
-   parallel batches (1080p/720p/best). Download finished clips as a .zip or
-   copy the timestamps list.
+1. Paste a YouTube, Twitch or Kick link, a file path on the PC, or upload a
+   video. Pick the content type or leave it on **Auto-detect**, and choose how
+   many clips and how long.
+2. Recaply fetches **only the audio**, measures it, shortlists the strongest
+   moments, transcribes only those, and has an AI rank them. The job page
+   shows live progress, then the ranked clips with score, reason, title, hook
+   and transcript.
+3. Pick clips and cut them: only those seconds of the video are downloaded,
+   cut frame-accurately on clean sentence boundaries (GPU encoding when
+   available). Each clip counts once against the plan.
+4. **VCT broadcasts** (content type "Valorant VCT broadcast"): every round
+   with kills, ACE/4K/3K badges, clutches and crowd hype, as before (see
+   [Detection modes](#detection-modes)).
+
+> **Your responsibility:** only clip videos you own or have permission to
+> use, and follow each platform's terms when you post clips. Recaply doesn't
+> remove watermarks or get around DRM or platform protections.
+
+## How the clip finder works
+
+```mermaid
+flowchart LR
+  A[Link / file / upload] --> B[resolve<br/>yt-dlp, ffprobe]
+  B --> C[audio only<br/>parallel fetch + decode]
+  C --> S1[audio energy]
+  B -.-> S2[chat replay<br/>Phase 3]
+  B -.-> S3[motion / scene<br/>Phase 3]
+  S1 & S2 & S3 --> F[fusion<br/>profile weights,<br/>overlap boost,<br/>dead-air + intro/outro penalty]
+  F --> W[shortlist 16-24 windows]
+  W --> T[transcribe windows only<br/>faster-whisper / Groq / OpenAI]
+  T --> L[LLM re-rank<br/>Gemini / Claude / OpenAI / Ollama<br/>or rule-based fallback]
+  L --> X[snap to sentences,<br/>de-duplicate, top N]
+  X --> K[cut chosen clips<br/>only those seconds]
+```
+
+- **Cheap first.** Loudness (and later chat and motion) is measured over the
+  whole video. Only the 16 best windows (24 for talk) are transcribed and sent to the LLM
+  in batches. Talk content is the exception: the "Podcast / interview / talk"
+  profile transcribes everything (loudness says little about a podcast), then
+  pre-filters on the text before the LLM sees anything.
+- **Never more than needed.** Analysis needs the audio track only; clips are
+  cut straight from the stream for their own seconds.
+- **Cached by content.** Every stage (audio, loudness, signals, 60-second
+  transcript blocks) is cached under `<data dir>/_cache/<video id or file
+  hash>/`, so re-running with another length, count or profile repeats no
+  download and no transcription.
+- **Never fails on AI.** No API key, a rate limit or an outage falls back to
+  rule-based scoring (signals + transcript), and the job summary says which
+  scorer ran. Each job shows per-stage seconds, tokens and estimated cost.
+- **Content profiles** (`recaply/profiles/`) set signal weights, keywords,
+  Whisper vocabulary, clip lengths and reframing per content type: talk,
+  gaming, shooters, open world (GTA/RP), IRL, Valorant, VCT broadcast.
+  Auto-detection reads the title, tags and category.
+
+### Code layout of the clip finder
+
+| Path | Stage |
+|------|-------|
+| `recaply/ingest/` | `sources.py` (links, files, cache keys), `audio.py` (audio-only fetch, parallel loudness) |
+| `recaply/signals/` | Signal plugins: one 0-1 score per second each (`audio_energy.py`) |
+| `recaply/profiles/` | Content profiles, auto-detection, `valorant/` (round detector, kill-feed OCR, vocabulary) |
+| `recaply/providers/` | Transcription (`transcribe/`: faster-whisper, Groq, OpenAI) and LLMs (`llm.py`: Gemini, Anthropic, OpenAI, Ollama) |
+| `recaply/score/` | `fusion.py`, `windows.py` (shortlist), `rerank.py` (LLM + fallback), `boundaries.py` (clean cuts), `select.py` |
+| `recaply/render/cut.py` | Frame-accurate cuts from files or stream URLs, GPU first |
+| `recaply/engine.py` | `analyze()` and `cut_clips()`: the pipeline |
+| `recaply/jobs/` | SQLite job store, queues (threads in the app, or RQ/Redis), task runner |
+| `recaply/cli.py` | `python -m recaply clip <link-or-file>` |
+| `clip_routes.py`, `templates/clipjob.html` | The web pages and API (progress over Server-Sent Events) |
+| `tests/` | Unit tests (fusion, boundaries, windows, selection, profiles, LLM handling) and an end-to-end test on `tests/fixtures/` |
+
+### Command line
+
+```bash
+.venv\Scripts\python -m recaply clip "https://www.youtube.com/watch?v=..." --count 8 --cut
+.venv\Scripts\python -m recaply clip D:\videos\stream.mp4 --profile gaming --min 15 --max 45
+.venv\Scripts\python -m recaply profiles
+```
+
+Options: `--profile` (auto, talk, gaming, fps, open_world, irl, valorant),
+`--count`, `--min`/`--max` seconds, `--transcriber`, `--llm`, `--cut`,
+`--quality 1080|720|best`, `--out DIR`, `--json FILE`. It prints the ranked
+clips and the per-stage timing and cost.
+
+### AI providers and keys
+
+Set in `.env` (see `.env.example`); keys are only sent in request headers
+and are masked in logs.
+
+| Setting | Options (default first) |
+|---------|-------------------------|
+| `RECAPLY_TRANSCRIBER` | `faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
+| `RECAPLY_LLM` | `gemini` (`GEMINI_API_KEY`, free tier), `anthropic` (`ANTHROPIC_API_KEY`, Claude Haiku), `openai` (`OPENAI_API_KEY`), `ollama` (local, `OLLAMA_URL`), `none` |
+
+### Add a content profile
+
+Create the profile with `register(Profile(...))` in a module under
+`recaply/profiles/` and import it from `recaply/profiles/__init__.py`:
+
+```python
+from recaply.profiles.base import Profile, register
+
+register(Profile(
+    key="minecraft", label="Minecraft", kind="gaming",
+    brief="A Minecraft stream. Great clips are funny deaths, big builds revealed, close calls.",
+    weights={"chat_rate": 0.3, "audio_energy": 0.35, "transcript": 0.25, "motion": 0.1},
+    keywords=("creeper", "diamonds", "no way"), vocab="Minecraft, Nether, Ender Dragon",
+    clip_min=15, clip_max=45, clip_target=28, reframe="split"))
+```
+
+To have auto-detection pick it, add a rule to `_RULES` in
+`recaply/profiles/detect.py`. Weights for signals that aren't available for
+a video (no chat, say) are dropped and the rest re-normalised.
+
+### Add a signal plugin
+
+A signal turns something measured over the whole video into one 0-1 score
+per second. Subclass `Signal`, register it, and give it a weight in the
+profiles that should use it:
+
+```python
+# recaply/signals/my_signal.py  (import it in recaply/signals/__init__.py)
+import numpy as np
+from recaply.signals.base import Signal, SignalContext, register
+
+@register
+class CrowdCheer(Signal):
+    name = "crowd_cheer"
+    version = 1                      # bump to invalidate cached results
+
+    def available(self, ctx: SignalContext) -> bool:
+        return ctx.duration > 0
+
+    def compute(self, ctx: SignalContext) -> np.ndarray:
+        ...                          # read ctx.audio_path / ctx.rms / ctx.extras
+        return np.zeros(ctx.seconds, np.float32)
+```
+
+Results are cached per source and version. If a signal raises an error, the
+job logs it, notes it in the summary, and carries on with the others.
+
+### Tests
+
+```bash
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest                 # all (the speech test runs Whisper locally)
+.venv\Scripts\python -m pytest -m "not slow"   # without Whisper
+.venv\Scripts\python tests\fixtures\make_fixtures.py   # regenerate the fixture videos
+```
+
+### Docker Compose (server / self-hosted, with a real queue)
+
+```bash
+docker compose up --build                  # app on :5000 + RQ worker + Redis
+docker compose --profile gpu up --build    # adds a worker with the NVIDIA GPU
+```
+
+The Windows app doesn't use Redis: clip jobs run on threads inside the app,
+are stored in `<data dir>/_clipjobs.db`, and resume after a restart (finished
+stages come from the cache).
 
 ## Running it from source
 
@@ -35,6 +188,9 @@ What the app does:
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt pywebview pyinstaller
 # ffmpeg and Node.js on PATH: winget install Gyan.FFmpeg OpenJS.NodeJS
+# yt-dlp is installed by requirements.txt; keep it current (YouTube changes often):
+#   .venv\Scripts\python -m pip install -U yt-dlp yt-dlp-ejs
+# streamlink is only needed for Live mode (Phase 4): pip install streamlink
 
 .venv\Scripts\python cloud.py      # the online service, http://127.0.0.1:8000
 .venv\Scripts\python desktop.py    # the Windows app (opens its own window)
@@ -173,7 +329,10 @@ gives durable storage and fast video delivery, not several servers at once.
 | `editor_routes.py` | The editor's pages and API (a blueprint) |
 | `common.py` / `config.py` / `slots.py` / `webutil.py` | Shared helpers / settings / priority work queue / response headers |
 | `storage.py` | Optional Cloudflare R2 storage for the self-hosted web version |
-| `pipeline.py`, `round_detector.py`, `killer_id.py`, `live.py` | VOD download and analysis |
+| `recaply/` | The clip finder (see [How the clip finder works](#how-the-clip-finder-works)) |
+| `clip_routes.py` | The clip finder's pages and API (a blueprint) |
+| `pipeline.py`, `live.py` | VOD download, streaming helpers and the MP4 converter (shared) |
+| `recaply/profiles/valorant/` | VCT round detector and kill-feed OCR (`round_detector.py` / `killer_id.py` in the root are aliases) |
 | `reels.py`, `editor.py`, `captions.py` | Reel renderer, editor renderer, Whisper captions |
 | `static/css/recaply.css` | Design system (brand tokens, light and dark themes) |
 | `static/css/site.css`, `templates/landing.html`, `templates/download.html` | Product website |
@@ -499,4 +658,9 @@ short with two video views renders in about 7 seconds on a GTX 1650 Ti). Project
   user accounts). Jobs are saved in `<data dir>/<job>/job.json` and reappear
   under "Recent" after a restart.
 - Copyright/Content ID considerations apply to whatever you publish from the
-  clips; this tool only handles the "find and cut" step.
+  clips; this tool only handles the "find and cut" step. Only clip videos you
+  own or have permission to use, and follow each platform's terms.
+- Clip finder (Phase 1): loudness is the only whole-video signal so far (chat
+  replay and motion come in Phase 3), auto-detection uses metadata only,
+  clips are cut 16:9 (9:16 reframing and captions come in Phase 2), and live
+  streams other than VCT aren't clipped yet (Phase 4).

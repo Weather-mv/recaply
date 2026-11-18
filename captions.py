@@ -31,13 +31,10 @@ import numpy as np
 MODELS = {"best": "large-v3", "fast": "large-v3-turbo"}
 DEFAULT_MODEL = os.environ.get("RECAPLY_WHISPER_MODEL", "")   # overrides the choice when set
 DEVICE = os.environ.get("RECAPLY_WHISPER_DEVICE", "auto")     # auto / cuda / cpu
-VOCAB = ("Valorant, VCT, Champions, Masters, Sentinels, G2, Paper Rex, PRX, Fnatic, NRG, Cloud9, LOUD, "
-         "Leviathan, Team Heretics, Team Liquid, DRX, Gen.G, T1, EDward Gaming, Karmine Corp, 100 Thieves, "
-         "Jett, Raze, Omen, Sova, Viper, Killjoy, Cypher, Reyna, Phoenix, Sage, Brimstone, Breach, Skye, "
-         "Yoru, Astra, KAY/O, Chamber, Neon, Fade, Harbor, Gekko, Deadlock, Iso, Clove, Vyse, Tejo, Waylay, "
-         "Ascent, Lotus, Haven, Bind, Split, Icebox, Breeze, Sunset, Pearl, Fracture, Abyss, Corrode, "
-         "Vandal, Phantom, Operator, Sheriff, Ghost, Spectre, Odin, spike, defuse, clutch, ace, eco, "
-         "tarik, TenZ, zekken, Demon1, aspas, Derke, Boaster, Chronicle, something, f0rsakeN, Jinggg")
+# Names Whisper should spell right. The default is the Valorant profile's list (the
+# editor's captions were built for Valorant clips); the clip pipeline passes each
+# profile's own vocabulary instead.
+from recaply.profiles.valorant.vocab import VOCAB  # noqa: E402
 LOCK = threading.Lock()                 # one transcription at a time (GPU memory)
 _dll_dirs_added = False
 

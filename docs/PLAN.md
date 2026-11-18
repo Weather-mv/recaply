@@ -1,7 +1,14 @@
 # Recaply v3: discovery and refactor plan (Step 0)
 
-Status: **waiting for approval**. Nothing in the code has changed yet.
+Status: approved with the default answers on 2026-11-18. **Phase 1 is built**
+(branch `phase-1-core-pipeline`); next is Phase 2 (Opus-style output).
 Written 2026-11-18 from a full read of the repo.
+
+Decisions taken with the approval: processing stays on the user's PC
+(SQLite queue; Redis/RQ only for Docker/self-host); AI keys are the user's
+own (Gemini/Groq) or local (faster-whisper/Ollama) for now; funnel Whisper is
+large-v3-turbo on NVIDIA, small on CPU; YouTube Shorts is the first publish
+target; the any-video flow is the home screen with VCT rounds as a profile.
 
 ## 1. What exists today
 

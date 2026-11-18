@@ -11,3 +11,5 @@ cloud.log
 cloud_data/
 dist/
 build/
+.claude/
+tests/fixtures/*.part*

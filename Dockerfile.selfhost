@@ -12,6 +12,11 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# The clip finder's job queue on a server (docker-compose.yml): Redis + RQ workers.
+RUN pip install --no-cache-dir "rq>=2.0" "redis>=5.0"
+# GPU workers (docker compose --profile gpu): CUDA's cuBLAS/cuDNN for faster-whisper.
+ARG GPU=0
+RUN if [ "$GPU" = "1" ]; then pip install --no-cache-dir nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"; fi
 COPY . .
 
 RUN useradd --create-home recaply && mkdir -p /data && chown recaply /data

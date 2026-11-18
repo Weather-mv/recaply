@@ -1,0 +1,270 @@
+"""
+clip_routes.py — the "any video" clip finder's pages and API (a blueprint).
+
+  POST /clips/start                 start from a link (or, in the Windows app, a file path)
+  POST /api/clips/upload            start from an uploaded file
+  GET  /clipjob/<id>                the job page (live progress, ranked clips)
+  GET  /api/clipjob/<id>            job as JSON
+  GET  /api/clipjob/<id>/events     progress stream (Server-Sent Events)
+  POST /api/clipjob/<id>/cut        cut the chosen clips (charged to the plan, once per clip)
+  POST /api/clipjob/<id>/retry      run the analysis again (cached stages are reused)
+  DELETE /api/clipjob/<id>          delete the job and its clips
+  GET  /clipjob/<id>/file/<name>    a cut clip
+
+Work runs on the job queue (recaply.jobs): threads in the app by default,
+RQ workers on a server.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import time
+
+from flask import Blueprint, Response, abort, flash, jsonify, redirect, render_template, request, send_from_directory
+
+from common import allowed_url
+from config import DESKTOP, env_int
+from recaply.ingest.sources import MEDIA_EXTS, looks_like_url
+from recaply.jobs import store
+from recaply.jobs.queue import get_queue
+from recaply.jobs.runner import job_dir
+from recaply.profiles import all_profiles
+
+if DESKTOP:
+    import desktop_auth as auth
+else:
+    import auth
+
+bp = Blueprint("clips", __name__)
+JOB_ID = re.compile(r"^[0-9a-f]{10}$")
+FILE_NAME = re.compile(r"^[\w.\-]{1,160}\.mp4$")
+UPLOAD_MB = max(1, env_int("RECAPLY_UPLOAD_MB", 2048))
+LENGTHS = {"auto": (None, None), "short": (15, 30), "medium": (30, 60), "long": (60, 90)}
+QUALITIES = ("1080", "720", "best")
+SSE_MAX_SEC = 600
+
+
+@bp.before_app_request
+def clip_body_limits():
+    if request.path == "/api/clips/upload":
+        request.max_content_length = UPLOAD_MB * 1024 * 1024
+
+
+def profile_choices() -> list[dict]:
+    """Profiles offered in the UI (VCT rounds runs the classic round scan)."""
+    return [{"key": p.key, "label": p.label} for p in all_profiles()]
+
+
+def _options(form) -> dict:
+    keys = {p["key"] for p in profile_choices()}
+    profile = form.get("profile", "auto")
+    if profile not in keys:
+        profile = "auto"
+    try:
+        count = min(30, max(1, int(form.get("count", 10))))
+    except (TypeError, ValueError):
+        count = 10
+    lo, hi = LENGTHS.get(form.get("length", "auto"), (None, None))
+    lang = (form.get("language") or "").strip().lower()[:5] or None
+    if lang and not re.fullmatch(r"[a-z]{2,3}", lang):
+        lang = None
+    return {"profile": profile, "count": count, "min_len": lo, "max_len": hi, "language": lang,
+            "allow_local": bool(DESKTOP)}
+
+
+def _owned(job_id: str) -> dict:
+    """The signed-in user's job, or a 404 (also for other people's jobs and bad ids)."""
+    if not JOB_ID.match(job_id or ""):
+        abort(404)
+    job = store.get(job_id)
+    if not job or not auth.can_access(job.get("owner")):
+        abort(404)
+    return job
+
+
+def view(job: dict) -> dict:
+    """What the page needs (no local paths)."""
+    result = dict(job.get("result") or {})
+    result.pop("source_path", None)
+    return {
+        "id": job["id"], "state": job["state"], "task": job.get("task"), "stage": job["stage"],
+        "progress": job["progress"], "title": job["title"] or job["input"][:120],
+        "error": job.get("error"), "created": job["created"], "result": result or None,
+        "cuts": job.get("cuts") or {}, "summary": job.get("summary") or {},
+        "options": job.get("options") or {}, "version": job["version"],
+    }
+
+
+def _start(input_text: str, opts: dict, title: str = "") -> str:
+    ent = auth.ent()
+    jid = store.create(input_text, opts, owner=auth.uid(), priority=ent["priority"] if ent else 0, title=title)
+    get_queue().submit(jid, "analyze", ent["priority"] if ent else 0)
+    return jid
+
+
+@bp.route("/clips/start", methods=["POST"])
+def clips_start():
+    ent = auth.ent()
+    if not ent or not ent["can_create"]:
+        flash((ent or {}).get("reason") or "Log in to continue.", "error")
+        return redirect("/app")
+    text = (request.form.get("url") or "").strip().strip('"')
+    opts = _options(request.form)
+    if not text:
+        return redirect("/app")
+    if looks_like_url(text):
+        if not allowed_url(text):
+            flash("Only YouTube, Twitch and Kick links are supported.", "error")
+            return redirect("/app")
+    elif not DESKTOP:
+        flash("Paste a link, or upload the file.", "error")
+        return redirect("/app")
+    elif not (os.path.isfile(text) and text.lower().endswith(MEDIA_EXTS)):
+        flash("That file wasn't found, or isn't a video.", "error")
+        return redirect("/app")
+    jid = _start(text, opts, title=os.path.basename(text) if not looks_like_url(text) else "")
+    return redirect(f"/clipjob/{jid}")
+
+
+@bp.route("/api/clips/upload", methods=["POST"])
+def clips_upload():
+    ent = auth.ent()
+    if not ent or not ent["can_create"]:          # checked before the upload is read
+        return jsonify({"error": (ent or {}).get("reason") or "Log in to continue.", "upgrade": True}), 402
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "No file."}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in MEDIA_EXTS:
+        return jsonify({"error": "Upload a video or audio file (MP4, MOV, MKV, WebM, MP3…)."}), 400
+    jid = store.new_id()
+    folder = job_dir(jid)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "source" + ext)
+    try:
+        f.save(path)
+    except OSError:
+        shutil.rmtree(folder, ignore_errors=True)
+        return jsonify({"error": "Saving the upload failed."}), 500
+    opts = {**_options(request.form), "allow_local": True}
+    title = os.path.splitext(os.path.basename(f.filename))[0][:120] or "Upload"
+    store.create(path, opts, owner=auth.uid(), priority=ent["priority"], title=title, job_id=jid)
+    get_queue().submit(jid, "analyze", ent["priority"])
+    return jsonify({"id": jid})
+
+
+@bp.route("/clipjob/<job_id>")
+def clipjob_page(job_id):
+    job = _owned(job_id)
+    return render_template("clipjob.html", job=view(job), job_json=json.dumps(view(job)),
+                           profiles=profile_choices())
+
+
+@bp.route("/api/clipjob/<job_id>")
+def clipjob_get(job_id):
+    return jsonify(view(_owned(job_id)))
+
+
+@bp.route("/api/clipjob/<job_id>/events")
+def clipjob_events(job_id):
+    _owned(job_id)
+
+    def stream():
+        last, t0, beat = None, time.time(), time.time()
+        yield "retry: 2000\n\n"
+        while time.time() - t0 < SSE_MAX_SEC:
+            v = store.version(job_id)
+            if v is None:
+                yield "event: gone\ndata: {}\n\n"
+                return
+            if v != last:
+                last = v
+                job = store.get(job_id)
+                if job is None:
+                    return
+                yield f"data: {json.dumps(view(job))}\n\n"
+                beat = time.time()
+            elif time.time() - beat > 15:
+                yield ": keep-alive\n\n"
+                beat = time.time()
+            time.sleep(0.5)
+
+    return Response(stream(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@bp.route("/api/clipjob/<job_id>/cut", methods=["POST"])
+def clipjob_cut(job_id):
+    job = _owned(job_id)
+    if job["state"] in ("queued", "running"):
+        return jsonify({"error": "This job is still working. Try again when it's done."}), 409
+    body = request.get_json(force=True, silent=True) or {}
+    quality = body.get("quality") if body.get("quality") in QUALITIES else "1080"
+    known = {c["id"] for c in ((job.get("result") or {}).get("clips") or [])}
+    try:
+        ids = [int(i) for i in body.get("ids", [])][:50]
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad request"}), 400
+    ids = [i for i in dict.fromkeys(ids) if i in known]
+    if not ids:
+        return jsonify({"error": "Pick at least one clip."}), 400
+    # Each clip counts once against the plan; cutting it again (other quality) is free.
+    ok, info = auth.charge([f"clip:{job_id}:{i}" for i in ids])
+    if not ok:
+        from common import charge_failed
+        return charge_failed(info)
+    for i in ids:
+        store.set_cut(job_id, i, {"state": "queued"})
+    store.update(job_id, task_args={"ids": ids, "quality": quality})
+    ent = auth.ent() or {}
+    get_queue().submit(job_id, "cut", ent.get("priority", 0), refund=auth.refunder())
+    return jsonify({"ok": True, "queued": len(ids)})
+
+
+@bp.route("/api/clipjob/<job_id>/retry", methods=["POST"])
+def clipjob_retry(job_id):
+    job = _owned(job_id)
+    if job["state"] in ("queued", "running"):
+        return jsonify({"error": "Already running."}), 409
+    ent = auth.ent()
+    if not ent or not ent["can_create"]:
+        return jsonify({"error": (ent or {}).get("reason") or "Log in to continue.", "upgrade": True}), 402
+    get_queue().submit(job_id, "analyze", ent["priority"])
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/clipjob/<job_id>", methods=["DELETE"])
+def clipjob_delete(job_id):
+    job = _owned(job_id)
+    if job["state"] in ("queued", "running"):
+        return jsonify({"error": "Wait for the job to finish first."}), 409
+    store.delete(job_id)
+    shutil.rmtree(job_dir(job_id), ignore_errors=True)
+    return jsonify({"ok": True})
+
+
+@bp.route("/clipjob/<job_id>/file/<name>")
+def clipjob_file(job_id, name):
+    job = _owned(job_id)
+    files = {c.get("file") for c in (job.get("cuts") or {}).values()}
+    if not FILE_NAME.match(name or "") or name not in files:
+        abort(404)
+    return send_from_directory(job_dir(job_id), name, as_attachment=request.args.get("dl") == "1",
+                               conditional=True)
+
+
+def recent_jobs(limit: int = 12) -> list[dict]:
+    """The user's latest clip jobs for the dashboard."""
+    out = []
+    for j in store.list_jobs(owner=auth.uid(), limit=limit):
+        out.append({"id": j["id"], "title": j["title"] or j["input"][:100], "state": j["state"],
+                    "created": j["created"], "kind": "clips"})
+    return out
+
+
+def resume_jobs() -> int:
+    """Re-queue clip jobs interrupted by a restart (called once at start-up)."""
+    return get_queue().resume()

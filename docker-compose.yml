@@ -1,0 +1,63 @@
+# One-command local / server run of the self-hosted web version with a real job queue:
+#
+#   docker compose up --build                      # app + worker + Redis (CPU)
+#   docker compose --profile gpu up --build        # adds a worker with the NVIDIA GPU
+#
+# Settings and API keys come from .env (see .env.example). The Windows app
+# doesn't use any of this: it runs jobs on threads inside the app.
+x-recaply: &recaply
+  build:
+    context: .
+    dockerfile: Dockerfile.selfhost
+  env_file: .env
+  environment:
+    RECAPLY_QUEUE: rq
+    REDIS_URL: redis://redis:6379/0
+    RECAPLY_DATA_DIR: /data
+  volumes:
+    - recaply-data:/data
+  depends_on:
+    - redis
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  app:
+    <<: *recaply
+    ports:
+      - "5000:5000"
+
+  worker:
+    <<: *recaply
+    command: ["rq", "worker", "recaply", "--url", "redis://redis:6379/0"]
+
+  worker-gpu:
+    <<: *recaply
+    build:
+      context: .
+      dockerfile: Dockerfile.selfhost
+      args:
+        GPU: "1"
+    profiles: ["gpu"]
+    command: ["rq", "worker", "recaply", "--url", "redis://redis:6379/0"]
+    environment:
+      RECAPLY_QUEUE: rq
+      REDIS_URL: redis://redis:6379/0
+      RECAPLY_DATA_DIR: /data
+      RECAPLY_WHISPER_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  recaply-data:
+  redis-data:
