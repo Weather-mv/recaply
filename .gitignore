@@ -1,0 +1,23 @@
+# Secrets: cookies.txt holds a YouTube login
+cookies.txt
+*cookies*.txt
+.env
+
+# Data and environments
+clips/
+.venv/
+__pycache__/
+*.pyc
+server*.log
+cloud.log
+cloud_data/
+
+# Windows app build output
+dist/
+build/work/
+build/stage/
+build/cache/
+
+# Build logs and test output
+build/build.log
+.pytest_cache/

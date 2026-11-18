@@ -1,0 +1,13 @@
+cookies.txt
+*cookies*.txt
+.env
+clips/
+.venv/
+__pycache__/
+*.pyc
+.git/
+server*.log
+cloud.log
+cloud_data/
+dist/
+build/

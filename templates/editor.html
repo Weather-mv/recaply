@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ name }} — Recaply editor</title>
+{% include "_theme.html" %}
+<style>
+  @font-face { font-family: "RecaplyFont"; src: url("/editor/font.ttf") format("truetype"); font-display: block; }
+  body { overflow: hidden; }
+  /* the editor fills the screen: no bottom tab bar on phones */
+  @media (max-width: 680px) { .nav-links { display: none !important; } body.has-tabbar { padding-bottom: 0; } }
+  .nav-in { max-width: none; }
+  :root { --tlh: 300px; --lab: 236px; }
+  .app { display: grid; grid-template-columns: 76px minmax(0, 1fr) 320px; grid-template-rows: auto minmax(0, 1fr);
+         height: calc(100vh - 64px); height: calc(100dvh - 64px); }
+
+  /* Top bar */
+  .top { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+  .top .back { color: var(--muted); font-size: 14.5px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+  .top .back svg { width: 16px; height: 16px; }
+  .name { flex: 0 1 260px; min-width: 60px; background: none; border: 1px solid transparent; border-radius: 10px; color: var(--text); font: inherit;
+          font-size: 15px; font-weight: 500; padding: 6px 10px; text-overflow: ellipsis; }
+  .name:hover { border-color: var(--line); } .name:focus { outline: none; border-color: var(--line-2); background: var(--surface); }
+  .fmts { --n: 4; flex: none; }
+  .fmts > button { padding: 5px 10px; font-size: 14px; }
+  .spacer { flex: 1; }
+  .saved { font-size: 13.5px; color: var(--faint); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+  .saved::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .saved.ok::before { background: #5bd68a; } .saved.busy::before { background: var(--accent); }
+  .ib { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; flex: none; border-radius: 11px; background: var(--surface);
+        border: 1px solid var(--line); color: var(--text); cursor: pointer; transition: border-color .3s var(--ease), opacity .3s var(--ease), background .3s var(--ease); }
+  .ib:hover { border-color: rgb(var(--ink) / .3); }
+  .ib:disabled { opacity: .35; cursor: default; border-color: var(--line); }
+  .ib svg { width: 16px; height: 16px; }
+  .ib.on { background: var(--accent-2-bg); border-color: rgb(var(--accent-rgb) / .6); color: var(--text); }
+  .ib.sm { width: 28px; height: 28px; border-radius: 9px; } .ib.sm svg { width: 14px; height: 14px; }
+  .exp-wrap { position: relative; }
+  .pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; width: 270px; padding: 14px; display: grid; gap: 12px;
+         background: rgb(var(--panel-rgb) / .97); border-radius: 18px; box-shadow: var(--shadow-hi); }
+  .pop .lab { font-size: 13.5px; color: var(--muted); }
+  .exp-prog { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); white-space: nowrap; }
+  .exp-prog .bar { width: 90px; }
+  .bar { height: 4px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--grad); border-radius: 99px; transition: width .4s var(--ease); }
+
+  /* Tool rail */
+  .rail { grid-row: 2; border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; scrollbar-width: none; }
+  .tool { position: relative; display: grid; justify-items: center; gap: 4px; padding: 8px 2px 7px; border-radius: 12px; background: none; border: 0; color: var(--muted);
+          font-size: 13.5px; cursor: pointer; transition: background .3s var(--ease), color .3s var(--ease); flex: none; }
+  .tool svg { width: 20px; height: 20px; }
+  .tool:hover { color: var(--text); background: var(--fill); }
+  .tool.hot { color: var(--text); }
+  .tool.hot svg { color: var(--accent); }
+  .tool .tag { position: absolute; top: 3px; right: 5px; font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 1px 4px; border-radius: 5px;
+               background: var(--accent); color: var(--text); }
+  .rail hr { border: 0; border-top: 1px solid var(--line); margin: 6px 6px; width: calc(100% - 12px); flex: none; }
+
+  /* Main column: stage, resizer, timeline */
+  .main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto var(--tlh); }
+  .stage { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+  .canvas-box { position: relative; min-height: 0; display: grid; place-items: center; padding: 14px; overflow: hidden;
+                background: radial-gradient(60% 60% at 50% 40%, rgb(var(--ink) / .025), transparent 70%); }
+  #cv { display: block; touch-action: none; box-shadow: 0 0 0 1px var(--line-2), 0 24px 60px rgba(0, 0, 0, .55); background: #000; }
+  .playbar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 14px 8px; font-size: 14px; color: var(--muted); }
+  .playbar .t { font-variant-numeric: tabular-nums; min-width: 120px; text-align: center; }
+  .playbar .ib.play { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); border-color: var(--accent-deep);
+                      background-image: radial-gradient(circle farthest-corner at 50% 100%, var(--glow-hi), rgb(var(--accent-rgb) / 0) 79%); }
+  .playbar { position: relative; }
+  .hint { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); max-width: calc(50% - 200px); font-size: 13px; color: var(--faint);
+          pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 1300px) { .hint { display: none; } }
+  .resizer { height: 8px; cursor: ns-resize; position: relative; touch-action: none; }
+  .resizer::after { content: ""; position: absolute; left: 50%; top: 2px; width: 44px; height: 4px; margin-left: -22px; border-radius: 99px;
+                    background: var(--line-2); transition: background .3s var(--ease); }
+  .resizer:hover::after { background: rgb(var(--ink) / .45); }
+
+  /* Timeline */
+  .tl { min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); border-top: 1px solid var(--line); background: var(--tl-bg);
+        user-select: none; -webkit-user-select: none; }
+  .tl-top { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .tl-top .grp { display: flex; align-items: center; gap: 4px; }
+  .tl-top .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; flex: none; }
+  .tl-top .tt { font-variant-numeric: tabular-nums; font-size: 13.5px; color: var(--text); min-width: 64px; }
+  .tl-top .zoom { width: 90px; }
+  .tl-top .lbl { font-size: 13px; color: var(--faint); white-space: nowrap; }
+  .tbtn { font: inherit; font-size: 13.5px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 4px 9px;
+          cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; transition: color .3s var(--ease), border-color .3s var(--ease); }
+  .tbtn:hover { color: var(--text); border-color: rgb(var(--ink) / .3); }
+  .tbtn.on { color: var(--text); border-color: rgb(var(--accent-rgb) / .6); background: var(--accent-2-bg); }
+  .tbtn svg { width: 13px; height: 13px; }
+  .src-strip { display: grid; grid-template-columns: var(--lab) minmax(0, 1fr); align-items: center; border-bottom: 1px solid var(--line); }
+  .src-strip .cap { font-size: 13px; color: var(--faint); padding: 0 12px; display: flex; gap: 6px; align-items: center; }
+  .src-strip .cap b { color: var(--muted); font-weight: 500; }
+  .tl-src { position: relative; height: 34px; margin-right: 14px; cursor: pointer; }
+  .tl-src canvas { position: absolute; left: 0; top: 7px; width: 100%; height: 20px; border-radius: 6px; background: var(--fill); }
+  .tl-src .dim { position: absolute; top: 7px; height: 20px; background: rgb(var(--bg-rgb) / .72); pointer-events: none; }
+  .tl-src .win { position: absolute; top: 5px; height: 24px; border-radius: 6px; box-shadow: inset 0 0 0 1.5px rgb(var(--ink) / .7); pointer-events: none; }
+  .tl-src .h { position: absolute; top: 3px; width: 12px; height: 28px; margin-left: -6px; border-radius: 5px; background: #fff; cursor: ew-resize; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
+  .tl-src .h::after { content: ""; position: absolute; left: 5px; top: 9px; width: 2px; height: 10px; background: rgba(0, 0, 0, .35); }
+  .tl-src .ph { position: absolute; top: 2px; width: 2px; height: 30px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+
+  .tl-body { position: relative; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .tl-grid { display: grid; grid-template-columns: var(--lab) var(--tw, 800px); position: relative; min-width: 100%; }
+  .cell-l { position: sticky; left: 0; z-index: 2; background: var(--tl-bg); border-right: 1px solid var(--line); border-bottom: 1px solid rgb(var(--ink) / .04);
+            display: flex; align-items: center; gap: 4px; padding: 0 6px 0 4px; height: 32px; min-width: 0; font-size: 13.5px; color: var(--muted); }
+  .cell-t { position: relative; height: 32px; border-bottom: 1px solid rgb(var(--ink) / .04); }
+  .row-sel .cell-l, .cell-l.sel { color: var(--text); background: var(--tl-bg-2); }
+  .cell-t.sel { background: rgb(var(--ink) / .025); }
+  .cell-l .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+  .cell-l .nm input { width: 100%; font: inherit; color: var(--text); background: var(--surface-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 6px; }
+  .cell-l .ic { width: 13px; height: 13px; flex: none; display: grid; }
+  .cell-l .ic svg { width: 13px; height: 13px; }
+  .cell-l .swatch { width: 4px; align-self: stretch; margin: 6px 2px 6px 0; border-radius: 2px; flex: none; }
+  .mini-b { background: none; border: 0; color: var(--faint); padding: 3px; cursor: pointer; display: grid; place-items: center; border-radius: 6px; flex: none; }
+  .mini-b:hover { color: var(--text); background: var(--fill); }
+  .mini-b svg { width: 13px; height: 13px; }
+  .mini-b.on { color: var(--accent); }
+  .grip { cursor: grab; color: rgb(var(--ink) / .22); }
+  .grip:active { cursor: grabbing; }
+  .twirl svg { transition: transform .25s var(--ease); }
+  .twirl.open svg { transform: rotate(90deg); }
+  .cell-l.off .nm { opacity: .45; text-decoration: line-through; }
+  .cell-l.prop { padding-left: 42px; font-size: 13px; height: 26px; }
+  .cell-t.prop { height: 26px; background: rgb(var(--ink) / .012); }
+  .cell-l.prop .pv { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--faint); font-size: 13px; }
+  .cell-l.prop .pn { min-width: 58px; }
+  .cell-l.prop select { font: inherit; font-size: 13px; background: var(--surface-3); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 1px 3px; }
+  .lbar { position: absolute; top: 5px; bottom: 5px; border-radius: 7px; background: var(--lc, rgb(var(--ink) / .12)); cursor: grab; min-width: 6px; overflow: hidden;
+          font-size: 13px; color: #fff; line-height: 22px; padding: 0 10px; white-space: nowrap; text-overflow: ellipsis;
+          box-shadow: inset 0 0 0 1px rgb(var(--ink) / .12); }
+  .lbar.sel { box-shadow: inset 0 0 0 2px var(--text), 0 0 0 1px rgba(0, 0, 0, .4); color: #fff; }
+  .lbar.dim { opacity: .45; }
+  .lbar i.h { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 1; }
+  .lbar i.h.a { left: 0; } .lbar i.h.b { right: 0; }
+  .lbar i.h:hover { background: rgb(var(--ink) / .25); }
+  .lbar .chunk { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; background: rgba(0, 0, 0, .28); font-size: 12px; line-height: 18px;
+                 padding: 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: rgb(var(--ink) / .9); }
+  .lbar .mark { position: absolute; top: 3px; width: 8px; height: 8px; margin-left: -4px; transform: rotate(45deg); background: rgb(var(--ink) / .7); border-radius: 1px; pointer-events: none; }
+  .kf { position: absolute; top: 7px; width: 11px; height: 11px; margin-left: -5.5px; transform: rotate(45deg); background: #d8dde6; border-radius: 2px;
+        cursor: ew-resize; box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .55); }
+  .kf.hold { border-radius: 0; background: #9aa3b2; }
+  .kf.sel { background: var(--accent); box-shadow: 0 0 0 1.5px #fff; }
+  .kline { position: absolute; top: 12px; height: 1px; background: rgb(var(--ink) / .18); pointer-events: none; }
+  .ruler { position: sticky; top: 0; z-index: 3; height: 26px; background: var(--tl-bg); border-bottom: 1px solid var(--line); cursor: pointer; }
+  .ruler-l { position: sticky; top: 0; left: 0; z-index: 4; height: 26px; background: var(--tl-bg); border-right: 1px solid var(--line);
+             border-bottom: 1px solid var(--line); font-size: 13px; color: var(--faint); display: flex; align-items: center; padding: 0 12px; }
+  .ruler span { position: absolute; top: 6px; font-size: 12.5px; color: var(--faint); transform: translateX(-50%); font-variant-numeric: tabular-nums; pointer-events: none; }
+  .ruler span:first-of-type { transform: none; }
+  .ruler b { position: absolute; bottom: 0; width: 1px; height: 6px; background: var(--line-2); pointer-events: none; }
+  .ruler b.s { height: 3px; background: var(--line); }
+  .wave { position: absolute; left: 0; top: 4px; bottom: 4px; width: 100%; height: calc(100% - 8px); pointer-events: none; }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 5;
+              box-shadow: 0 0 10px rgb(var(--accent-rgb) / .6); }
+  .playhead::before { content: ""; position: absolute; top: 0; left: -6px; border: 7px solid transparent; border-top-color: var(--accent); }
+  .dropline { position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 6; pointer-events: none; box-shadow: 0 0 8px rgb(var(--accent-rgb) / .8); }
+  .snapline { position: absolute; top: 0; bottom: 0; width: 1px; background: rgb(var(--ink) / .6); z-index: 5; pointer-events: none; }
+  .tl-empty { grid-column: 1 / -1; padding: 18px; font-size: 14px; color: var(--faint); }
+
+  /* Inspector */
+  .insp { grid-column: 3; grid-row: 2; border-left: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .ih { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 5px; padding: 11px 12px; background: rgb(var(--bg-rgb) / .94);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); min-height: 56px; }
+  .ih .ttl { flex: 1; min-width: 0; display: grid; }
+  .ih .ttl b { font-family: var(--head); font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ih .ttl small { font-size: 13px; color: var(--faint); }
+  .sec { padding: 13px 14px 15px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; }
+  .sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .sec-h b { font-size: 14px; font-weight: 600; color: var(--text); letter-spacing: .01em; }
+  .link { font: inherit; font-size: 13.5px; color: var(--muted); background: none; border: 0; padding: 2px 0; cursor: pointer; }
+  .link:hover { color: var(--text); }
+  .ctl { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 10px; font-size: 14px; color: var(--muted); }
+  .ctl output { font-variant-numeric: tabular-nums; color: var(--text); font-size: 13.5px; min-width: 40px; text-align: right; }
+  .ctl input[type=range] { grid-column: 1 / -1; }
+  .ctl .kbtn { grid-column: 3; grid-row: 1; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 24px; margin: 0; }
+  .crow { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+  .crow > span { flex: 1; }
+  input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--line-2); border-radius: 8px; background: none; cursor: pointer; }
+  input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type=color]::-webkit-color-swatch { border: 0; border-radius: 5px; }
+  .nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .nums label { display: grid; gap: 3px; font-size: 13px; color: var(--faint); }
+  .nums input, .tin, .sel-in { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; color: var(--text); font: inherit;
+                               font-size: 14px; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+  .sel-in option { background: var(--surface-solid); }
+  .nums input:focus, .tin:focus { outline: none; border-color: var(--line-2); }
+  textarea.tin { resize: vertical; min-height: 64px; line-height: 1.4; font-size: 15px; }
+  .seg2 { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 11px; background: var(--fill); }
+  .seg2 button { font: inherit; font-size: 13.5px; padding: 6px 4px; border-radius: 8px; border: 0; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .seg2 button:hover { color: var(--text); }
+  .seg2 button.on { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  .btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 6px; }
+  .btns .btn { justify-content: center; padding: 7px 8px; font-size: 14px; }
+  .note { font-size: 13px; color: var(--faint); line-height: 1.45; }
+  .time2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .time2 label { display: grid; gap: 3px; font-size: 13px; color: var(--faint); }
+  .time2 .row { display: flex; gap: 4px; }
+  .time2 .row .tin { min-width: 0; }
+  .mini { width: 100%; display: block; border-radius: 10px; background: #000; touch-action: none; cursor: crosshair; }
+  .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .switch-row input { display: none; }
+  .switch-row .sw { width: 40px; height: 24px; }
+  .switch-row .sw::after { width: 16px; height: 16px; }
+  .switch-row input:checked + .sw::after { transform: translateX(16px); }
+  .kbtn { width: 22px; height: 22px; padding: 0; border: 0; background: none; color: var(--faint); cursor: pointer; display: grid; place-items: center; border-radius: 6px; }
+  .kbtn:hover { color: var(--text); background: var(--fill); }
+  .kbtn.on { color: var(--accent); }
+  .kbtn svg { width: 12px; height: 12px; }
+  .animrow { display: grid; grid-template-columns: 52px minmax(0, 1fr) 64px; gap: 6px; align-items: center; font-size: 13.5px; color: var(--muted); }
+  .styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .style-card { font: inherit; border: 1px solid var(--line); border-radius: 11px; background: #0d1016; padding: 10px 4px 7px; cursor: pointer; display: grid; gap: 5px;
+                justify-items: center; color: var(--muted); font-size: 13px; transition: border-color .3s var(--ease); }
+  .style-card:hover { border-color: rgb(var(--ink) / .3); }
+  .style-card.on { border-color: var(--accent); color: var(--text); }
+  .style-card .smp { font-family: "RecaplyFont", Arial, sans-serif; font-size: 14.5px; line-height: 1.1; letter-spacing: .01em; color: var(--text); min-height: 18px;
+                     display: flex; gap: 3px; align-items: center; }
+  .style-card .smp i { font-style: normal; padding: 0 2px; border-radius: 3px; }
+  .chunks { display: grid; gap: 4px; max-height: 360px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; scrollbar-width: thin; }
+  .chunk-row { display: grid; grid-template-columns: 46px minmax(0, 1fr) 22px; gap: 6px; align-items: center; }
+  .chunk-row .tm { font: inherit; font-size: 13px; color: var(--faint); font-variant-numeric: tabular-nums; background: none; border: 0; cursor: pointer; text-align: left; padding: 0; }
+  .chunk-row .tm:hover { color: var(--text); }
+  .chunk-row input { width: 100%; background: transparent; border: 1px solid transparent; border-radius: 7px; color: var(--text); font: inherit; font-size: 14px; padding: 4px 6px; }
+  .chunk-row input:hover { border-color: var(--line); }
+  .chunk-row input:focus { outline: none; border-color: var(--line-2); background: var(--surface); }
+  .chunk-row.now input { background: var(--accent-2-bg); border-color: rgb(var(--accent-rgb) / .4); }
+  .chunk-row.low input { text-decoration: underline wavy rgb(var(--accent-rgb) / .6); text-underline-offset: 3px; }
+
+  /* Menus, modals, toasts */
+  .ctx { position: fixed; z-index: 80; min-width: 190px; padding: 6px; background: rgb(var(--panel-rgb) / .98); border-radius: 13px; box-shadow: var(--shadow-hi); display: grid; }
+  .ctx button { font: inherit; font-size: 14px; text-align: left; color: var(--text); background: none; border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+                display: flex; justify-content: space-between; gap: 18px; }
+  .ctx button:hover { background: var(--fill-2); }
+  .ctx button kbd { font: inherit; font-size: 13px; color: var(--faint); }
+  .ctx hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+  .ctx .danger { color: var(--glow-hi); }
+  .modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; }
+  .modal[hidden] { display: none; }
+  .modal-back { position: absolute; inset: 0; background: rgb(var(--scrim) / .74); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .modal-card { position: relative; width: min(900px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; padding: 20px; display: grid; gap: 14px;
+                background: rgb(var(--panel-rgb) / .97); border-radius: 22px; box-shadow: var(--shadow-hi); animation: fade .3s var(--ease); }
+  .modal-card.narrow { width: min(560px, 100%); }
+  .modal-card h3 { margin: 0; font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  .modal-card .sub { color: var(--muted); font-size: 14.5px; margin-top: -6px; line-height: 1.5; }
+  .field-l { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; font-size: 13.5px; color: var(--muted); }
+  .styles { width: 100%; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .react-grid { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+  .react-opts { display: grid; gap: 14px; }
+  .legend { display: flex; gap: 14px; font-size: 13.5px; color: var(--muted); flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .m-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .m-foot .left { margin-right: auto; }
+  .player { width: auto; max-width: 100%; max-height: 70vh; border-radius: 14px; background: #000; display: block; margin: 0 auto; }
+  .welcome-steps { display: grid; gap: 12px; }
+  .welcome-steps div { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; font-size: 15px; color: var(--muted); line-height: 1.5; }
+  .welcome-steps b { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-2-bg); color: var(--text);
+                     font-size: 14.5px; box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / .5); }
+  .welcome-steps strong { color: var(--text); font-weight: 600; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; font-size: 14.5px; color: var(--muted); }
+  .keys kbd { font: inherit; font-size: 13.5px; color: var(--text); background: var(--surface-3); border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 7px; white-space: nowrap; justify-self: start; }
+  .keys h4 { grid-column: 1 / -1; margin: 8px 0 0; font-size: 13.5px; color: var(--text); font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 24px; z-index: 70; transform: translateX(-50%); padding: 10px 14px 10px 18px; border-radius: 14px;
+           background: rgb(var(--panel-rgb) / .97); box-shadow: var(--shadow-hi); font-size: 15px; animation: fade .3s var(--ease);
+           max-width: calc(100% - 32px); display: flex; align-items: center; gap: 14px; }
+  .toast button { font: inherit; font-size: 14.5px; font-weight: 600; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 2px 4px; }
+  .cover { position: fixed; inset: 64px 0 0; z-index: 50; display: grid; place-items: center; background: var(--bg); text-align: center; padding: 24px; }
+  .cover .box { display: grid; gap: 14px; justify-items: center; max-width: 440px; }
+  .cover .box b { font-family: var(--head); font-size: 20px; font-weight: 600; }
+  .cover .box span { color: var(--muted); font-size: 15px; line-height: 1.5; }
+  .cover .bar { width: 260px; }
+  .asr-prog { display: grid; gap: 8px; padding: 14px; border-radius: 14px; background: var(--fill); font-size: 14.5px; }
+  .asr-prog .bar { height: 6px; }
+
+  @media (max-width: 1240px) { .app { grid-template-columns: 70px minmax(0, 1fr) 290px; } :root { --lab: 200px; } .fmts > button { padding: 5px 7px; } }
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    :root { --lab: 150px; }
+    .app { display: block; height: auto; }
+    .top { flex-wrap: wrap; position: sticky; top: 58px; z-index: 15; background: rgb(var(--bg-rgb) / .94); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+    .top .name { flex: 1 1 120px; }
+    .fmts { order: 5; flex: 1 1 100%; }
+    .saved { display: none; }
+    .rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px; }
+    .tool { min-width: 60px; }
+    .rail hr { border-top: 0; border-left: 1px solid var(--line); width: 0; margin: 6px 2px; }
+    .main { display: block; }
+    .canvas-box { height: 56vh; padding: 10px; }
+    .resizer { display: none; }
+    .tl { height: 46vh; }
+    .insp { border-left: 0; overflow: visible; }
+    .ih { position: static; }
+    .react-grid, .grid2 { grid-template-columns: minmax(0, 1fr); }
+    .cover { inset: 58px 0 0; }
+    .hint { display: none; }
+  }
+  @media (max-width: 480px) {
+    .top .back span { display: none; } .exp-prog .bar { width: 50px; }
+    .playbar { flex-wrap: wrap; gap: 6px; }
+    #step-back, #step-fwd, #loop { display: none; }
+    .playbar .t { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+{% set active = 'editor' %}{% include "_nav.html" %}
+
+<div class="app" id="app">
+  <div class="top">
+    <a class="back" href="/editor" title="All projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg><span>Projects</span></a>
+    <input class="name" id="name" value="{{ name }}" maxlength="80" aria-label="Project name" title="Rename the project">
+    <div class="seg fmts" id="fmts" role="tablist" aria-label="Format">
+      {% for f in formats %}<button type="button" data-fmt="{{ f }}" title="{{ {'9:16': 'Vertical: Shorts, Reels, TikTok', '16:9': 'Landscape: YouTube', '1:1': 'Square', '4:5': 'Portrait: Instagram feed'}[f] }}">{{ f }}</button>{% endfor %}
+    </div>
+    <div class="spacer"></div>
+    <span class="saved" id="saved"></span>
+    <button class="ib" id="undo" title="Undo (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+    <button class="ib" id="redo" title="Redo (Ctrl+Shift+Z)" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+    <button class="ib" id="keys-open" title="Keyboard shortcuts (?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
+    <div class="exp-prog" id="exp-prog" hidden><span id="exp-txt"></span><div class="bar"><div id="exp-bar"></div></div></div>
+    <div class="exp-wrap">
+      <button class="btn sm" id="exp-open">Export</button>
+      <div class="pop" id="exp-pop" hidden>
+        <div><div class="lab" style="margin-bottom:6px">Quality</div><div class="seg2" id="exp-size"><button data-v="1080">Full HD</button><button data-v="720">720p (smaller)</button></div></div>
+        <div class="note" id="exp-info"></div>
+        <button class="btn" id="exp-go">Export MP4</button>
+        <button class="btn ghost sm" id="exp-last" hidden>Watch / download last export</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="rail" id="rail">
+    <button class="tool hot" id="cap-open" title="Auto captions from the speech"><span class="tag">AI</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M7 11h3M12 11h5M7 15h7M16 15h1"/></svg>Captions</button>
+    <button class="tool hot" id="react-open" title="Reaction layout: the streamer's cam above the gameplay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2.5" width="14" height="8" rx="2"/><circle cx="12" cy="6" r="1.8"/><rect x="5" y="13.5" width="14" height="8" rx="2"/><path d="m10.5 15.8 3.5 1.7-3.5 1.7z"/></svg>Reaction</button>
+    <button class="tool hot" id="pov-apply" title="Valorant POV: the player's view fills the frame, with the kill feed traced in on top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M12 9v1.6M12 13.4V15M8.8 12h1.6M13.6 12h1.6"/><path d="M13 5h3"/></svg>POV</button>
+    <hr>
+    <button class="tool" data-add="text" title="Add text (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>Text</button>
+    <button class="tool" data-add="rect" title="Add a box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/></svg>Box</button>
+    <button class="tool" data-add="ellipse" title="Add a circle / ellipse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/></svg>Circle</button>
+    <button class="tool" data-add="line" title="Add a line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19 20 5"/></svg>Line</button>
+    <button class="tool" data-add="arrow" title="Add an arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 19 5M10 5h9v9"/></svg>Arrow</button>
+    <button class="tool" data-add="image" title="Add a picture (logo, sticker)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></svg>Image</button>
+    <button class="tool" data-add="video" title="Add another view of the video (picture in picture, split screen)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><rect x="12" y="11" width="7" height="5.5" rx="1.2"/></svg>Video</button>
+    <input type="file" id="img-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+  </div>
+
+  <div class="main">
+    <div class="stage">
+      <div class="canvas-box" id="cbox"><canvas id="cv"></canvas></div>
+      <div class="playbar"><div class="hint" id="hint"></div>
+        <button class="ib" id="to-start" title="Go to the start (Home)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button class="ib" id="step-back" title="One frame back (Ctrl+←)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+        <button class="ib play" id="play" title="Play / pause (Space)"></button>
+        <button class="ib" id="step-fwd" title="One frame forward (Ctrl+→)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+        <span class="t" id="time">0:00.0 / 0:00.0</span>
+        <button class="ib" id="loop" title="Loop playback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+        <button class="ib" id="mute" title="Mute the preview (M)"></button>
+      </div>
+    </div>
+    <div class="resizer" id="resizer" title="Drag to resize the timeline"></div>
+    <div class="tl" id="tl">
+      <div class="tl-top">
+        <div class="grp">
+          <button class="tbtn" id="t-split" title="Split the selected layer at the playhead (Ctrl+Shift+D)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M5 8l-3 4 3 4M19 8l3 4-3 4"/></svg>Split</button>
+          <button class="tbtn" id="t-kf" title="Add a keyframe for the selected layer's position, scale, rotation and opacity at the playhead"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 21 12 12 21 3 12z"/></svg>Keyframe</button>
+          <button class="tbtn" id="t-prevk" title="Previous keyframe (J)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+          <button class="tbtn" id="t-nextk" title="Next keyframe (K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+        </div>
+        <div class="sep"></div>
+        <button class="tbtn on" id="t-snap" title="Snap to the playhead, keyframes and other layers">Snap</button>
+        <div class="spacer"></div>
+        <span class="lbl">Zoom</span>
+        <button class="tbtn" id="t-zout" title="Zoom out (-)">−</button>
+        <input type="range" class="zoom" id="t-zoom" min="0" max="100" value="0" title="Timeline zoom">
+        <button class="tbtn" id="t-zin" title="Zoom in (+)">+</button>
+        <button class="tbtn" id="t-fit" title="Fit the whole video">Fit</button>
+      </div>
+      <div class="src-strip"><div class="cap"><b>Trim</b><span id="trim-info"></span></div>
+        <div class="tl-src" id="tl-src" title="Drag the white handles to trim the video"><canvas id="src-wave"></canvas><div class="dim" id="dim-a"></div><div class="dim" id="dim-b"></div><div class="win" id="src-win"></div><div class="h" data-h="0"></div><div class="h" data-h="1"></div><div class="ph" id="src-ph"></div></div>
+      </div>
+      <div class="tl-body" id="tl-body"></div>
+    </div>
+  </div>
+
+  <aside class="insp" id="insp"></aside>
+</div>
+
+<div class="cover" id="cover" hidden><div class="box" id="cover-box"></div></div>
+<div class="ctx" id="ctx" hidden></div>
+
+<div class="modal" id="react" hidden>
+  <div class="modal-back" data-close></div>
+  <div class="modal-card">
+    <h3>Reaction layout</h3>
+    <div class="sub" id="r-status">Looking for the streamer's cam…</div>
+    <div class="react-grid">
+      <div style="display:grid;gap:8px">
+        <canvas class="mini" id="r-cv"></canvas>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Cam</span><span><i style="background:#fff"></i>Gameplay</span><span>Drag the boxes or their corners to adjust.</span></div>
+      </div>
+      <div class="react-opts" id="r-opts"></div>
+    </div>
+    <div class="m-foot">
+      <button class="btn ghost sm left" id="r-again">Detect again</button>
+      <button class="btn ghost sm" data-close>Cancel</button>
+      <button class="btn sm" id="r-apply">Apply layout</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="capm" hidden>
+  <div class="modal-back" data-close></div>
+  <div class="modal-card narrow">
+    <h3>Auto captions</h3>
+    <div class="sub">Turns the speech into word-timed captions, a few words at a time with the spoken word highlighted. Everything runs on this computer.</div>
+    <div id="cap-form" style="display:grid;gap:14px">
+      <div class="field-l">Style<div class="styles" id="cap-styles"></div></div>
+      <div class="grid2">
+        <label class="field-l">Language<select class="sel-in" id="cap-lang"></select></label>
+        <div class="field-l">Words on screen<div class="seg2" id="cap-words"><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="6">6</button></div></div>
+      </div>
+      <div class="field-l">Accuracy<div class="seg2" id="cap-q"><button data-v="best">Highest (Whisper large-v3)</button><button data-v="fast">Faster (turbo)</button></div></div>
+      <label class="field-l">Names to spell right <span class="note" style="margin-top:-4px">Optional: player, team or channel names, separated by commas. Valorant agents, maps and VCT teams are already known.</span>
+        <input class="tin" id="cap-vocab" maxlength="400" placeholder="e.g. tarik, Sentinels, yay"></label>
+    </div>
+    <div class="asr-prog" id="cap-prog" hidden><div style="display:flex;justify-content:space-between;gap:10px"><span id="cap-stage">Starting…</span><span id="cap-pc"></span></div><div class="bar"><div id="cap-bar"></div></div><div class="note" id="cap-note">The first run downloads the speech model (about 3 GB for the highest accuracy). After that it's quick.</div></div>
+    <div class="note" id="cap-err" style="color:var(--glow-hi)" hidden></div>
+    <div class="m-foot">
+      <button class="btn ghost sm left" id="cap-reuse" hidden>Use the last transcript</button>
+      <button class="btn ghost sm" data-close>Cancel</button>
+      <button class="btn sm" id="cap-go">Generate captions</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="done" hidden>
+  <div class="modal-back" data-close></div>
+  <div class="modal-card" style="width:auto;max-width:min(900px,100%)">
+    <video class="player" id="d-player" controls playsinline></video>
+    <div class="m-foot"><span class="note left" id="d-info"></span><button class="btn ghost sm" data-close>Close</button><a class="btn sm" id="d-dl" href="#">Download</a></div>
+  </div>
+</div>
+
+<div class="modal" id="welcome" hidden>
+  <div class="modal-back" data-close></div>
+  <div class="modal-card narrow">
+    <h3>Welcome to the editor</h3>
+    <div class="welcome-steps">
+      <div><b>1</b><span><strong>Add things</strong> from the left: auto captions, text, shapes, pictures, or the reaction layout for watch parties.</span></div>
+      <div><b>2</b><span><strong>Click to edit.</strong> Drag on the canvas to move, pull the handles to resize, the round handle to rotate. The panel on the right has every setting.</span></div>
+      <div><b>3</b><span><strong>Arrange in the timeline.</strong> Drag layers up or down to change what's in front, drag a bar to move it in time, its ends to trim. Right-click for more.</span></div>
+      <div><b>4</b><span><strong>Animate</strong> with In / Out effects, or ◆ keyframes at different times.</span></div>
+      <div><b>5</b><span><strong>Export</strong> when it looks right. Everything saves automatically.</span></div>
+    </div>
+    <div class="m-foot"><button class="btn ghost sm left" onclick="document.getElementById('welcome').hidden=true;document.getElementById('keys').hidden=false">Keyboard shortcuts</button><button class="btn sm" data-close>Start editing</button></div>
+  </div>
+</div>
+
+<div class="modal" id="keys" hidden>
+  <div class="modal-back" data-close></div>
+  <div class="modal-card narrow">
+    <h3>Keyboard shortcuts</h3>
+    <div class="keys">
+      <h4>Playback</h4>
+      <kbd>Space</kbd><span>Play / pause</span>
+      <kbd>Home</kbd> <span>Go to the start (End: the end)</span>
+      <kbd>Ctrl + ← / →</kbd><span>One frame back / forward (add Shift for 1 second)</span>
+      <kbd>M</kbd><span>Mute the preview</span>
+      <h4>Layers</h4>
+      <kbd>Click / Shift-drag</kbd><span>Select, then drag to move (Alt: no snapping). Drag the round handle above to rotate.</span>
+      <kbd>← ↑ → ↓</kbd><span>Nudge 1 px (Shift: 10 px)</span>
+      <kbd>Ctrl + D</kbd><span>Duplicate</span>
+      <kbd>Del</kbd><span>Delete (a selected keyframe first)</span>
+      <kbd>Ctrl + Shift + D</kbd><span>Split at the playhead</span>
+      <kbd>[ / ]</kbd><span>Move the layer to start / end at the playhead</span>
+      <kbd>Alt + [ / ]</kbd><span>Trim the layer's start / end to the playhead</span>
+      <kbd>Ctrl + ] / [</kbd><span>Bring forward / send backward</span>
+      <h4>Animation</h4>
+      <kbd>P · S · R · O</kbd><span>Show the selected layer's position, scale, rotation or opacity keyframes</span>
+      <kbd>J / K</kbd><span>Previous / next keyframe</span>
+      <kbd>Alt + drag</kbd><span>In the timeline: move without snapping</span>
+      <h4>Editing</h4>
+      <kbd>Ctrl + Z</kbd><span>Undo (Ctrl+Shift+Z or Ctrl+Y: redo)</span>
+      <kbd>T</kbd><span>New text layer</span>
+      <kbd>Esc</kbd><span>Deselect</span>
+    </div>
+    <div class="m-foot"><button class="btn sm" data-close>Got it</button></div>
+  </div>
+</div>
+
+<script>
+  window.EDITOR_CFG = { pid: "{{ pid }}", formats: {{ formats|tojson }}, consts: {{ consts|tojson }}, hasFont: {{ "true" if has_font else "false" }} };
+</script>
+<script src="/static/editor.js?v={{ js_ver }}"></script>
+</body>
+</html>

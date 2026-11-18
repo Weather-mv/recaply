@@ -1,0 +1,27 @@
+# Self-hosted web version (everything on one server, accounts local). The
+# product setup is the Windows app + the online service in Dockerfile.
+FROM python:3.13-slim
+
+# ffmpeg for cutting/converting, Node.js so yt-dlp can unlock all YouTube
+# formats, DejaVu Sans Bold for reel captions,
+# libGL/glib for OpenCV.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg nodejs fonts-dejavu-core libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+
+RUN useradd --create-home recaply && mkdir -p /data && chown recaply /data
+USER recaply
+
+ENV HOST=0.0.0.0 PORT=5000 RECAPLY_DATA_DIR=/data PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 5000
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD python -c "import urllib.request,os;urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/healthz',timeout=4)"
+
+# One process only: jobs are kept in memory. waitress serves with threads.
+CMD ["python", "app.py"]

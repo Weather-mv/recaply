@@ -1,0 +1,14 @@
+{# Shared <head> pieces: theme (set before paint), fonts, the design system and page behaviour. #}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<meta name="theme-color" content="#f8f8f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#08080a" media="(prefers-color-scheme: dark)">
+<script>
+  (() => { let t; try { t = localStorage.getItem("rc_theme"); } catch (_) {}
+    document.documentElement.dataset.theme = t === "light" || t === "dark" ? t : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); })();
+</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%230865ff'/%3E%3Cpath d='M22.6 10.6A8 8 0 1 0 24 16' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M24.4 6.8v4.6h-4.6' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M14 12.3v7.4l5.8-3.7z' fill='white'/%3E%3C/svg%3E">
+<link rel="preload" href="/static/fonts/plus-jakarta-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/fonts/fonts.css?v={{ asset_ver }}">
+<link rel="stylesheet" href="/static/css/recaply.css?v={{ asset_ver }}">
+{% if desktop %}<script>window.RECAPLY_DESKTOP = {{ {"plan": ent.plan if ent else None, "left": ent.left if ent else None}|tojson }};</script>{% endif %}
+<script src="/static/js/recaply.js?v={{ asset_ver }}"></script>

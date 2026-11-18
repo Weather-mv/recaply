@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recaply web app</title>
+<meta name="description" content="Recaply in your browser: videos are processed by Recaply on your own PC.">
+{% include "_theme.html" %}
+<link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
+<style>
+  .wa { max-width: 640px; margin: 0 auto; background: var(--surface); border-radius: 28px; box-shadow: var(--shadow-hi);
+    padding: 40px 36px; text-align: center; }
+  .wa h1 { font-size: clamp(30px, 4.4vw, 40px); line-height: 1.1; margin: 22px 0 12px; letter-spacing: -0.02em; }
+  .wa p { color: var(--muted); font-size: 17px; margin: 0 auto 26px; max-width: 480px; }
+  .wa .ic { width: 68px; height: 68px; border-radius: 20px; margin: 0 auto; display: grid; place-items: center;
+    background: rgb(var(--accent-rgb) / .12); color: var(--accent); }
+  .wa .ic svg { width: 34px; height: 34px; }
+  .wa .ok .ic, .wa .ic.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .wa .row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .wa .bar { width: 200px; height: 5px; border-radius: 9px; background: var(--fill-2); overflow: hidden; margin: 6px auto 0; }
+  .wa .bar i { display: block; width: 40%; height: 100%; border-radius: 9px; background: var(--accent); animation: wa-m 1.1s ease-in-out infinite; }
+  @keyframes wa-m { 0% { transform: translateX(-100%) } 100% { transform: translateX(260%) } }
+  .wa .steps { text-align: left; display: grid; gap: 14px; margin: 30px 0 0; padding: 24px 0 0; border-top: 1px solid var(--line); }
+  .wa .steps div { display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start; font-size: 16px; }
+  .wa .steps b { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--fill); font-size: 16px; }
+  .wa .steps span { padding-top: 5px; }
+  .wa .err { color: var(--danger); font-weight: 600; font-size: 16px; margin: 18px 0 0; }
+  .wa .muted { color: var(--muted); font-size: 15px; margin-top: 22px; }
+  .wa .muted a { font-weight: 600; }
+  .why { max-width: 640px; margin: 28px auto 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .why div { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); padding: 18px; font-size: 15px; color: var(--muted); }
+  .why b { display: block; color: var(--text); font-size: 16px; margin-bottom: 4px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 680px) { .wa { padding: 30px 20px; } .why { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body class="site">
+{% include "_site_nav.html" %}
+<main>
+  <section class="hero" style="padding-bottom:40px !important"><div class="wrap-site">
+    <div class="wa rise">
+
+      <div id="s-check">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <h1>Connecting to your PC…</h1>
+        <p>Recaply processes videos on your own computer, so it's fast and nothing gets uploaded.</p>
+        <div class="bar"><i></i></div>
+      </div>
+
+      <div id="s-open" hidden>
+        <div class="ic ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+        <h1>Opening Recaply…</h1>
+        <p>Connected to Recaply on this PC.</p>
+        <div class="bar"><i></i></div>
+        <p class="err" id="open-err" hidden></p>
+      </div>
+
+      <div id="s-missing" hidden>
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></div>
+        <h1>Start Recaply on this PC</h1>
+        <p>The web app uses Recaply on your computer to download and cut videos. Start it, and this page opens it by itself.</p>
+        <div class="row">
+          <a class="btn lg" href="recaply://start" id="start">Start Recaply</a>
+          {% if installer %}<a class="btn lg ghost" href="{{ installer }}" download>Download for Windows</a>
+          {% else %}<a class="btn lg ghost" href="/download">Download for Windows</a>{% endif %}
+        </div>
+        <div class="steps">
+          <div><b>1</b><span><strong>First time?</strong> Download and install Recaply (Windows 10 and 11). It runs quietly in the system tray.</span></div>
+          <div><b>2</b><span><strong>Already installed?</strong> Click <strong>Start Recaply</strong>. If your browser asks, allow it to open Recaply.</span></div>
+          <div><b>3</b><span>If your browser asks to <strong>access devices on your local network</strong>, choose Allow: that's this page talking to Recaply on your PC.</span></div>
+        </div>
+        <p class="muted" id="waiting">Waiting for Recaply…</p>
+        <p class="muted">Recaply is already running? <a href="#" id="force">Open it anyway</a></p>
+      </div>
+
+    </div>
+    <div class="why rise d2">
+      <div><b>Nothing uploaded</b>Your VODs and clips stay on your PC.</div>
+      <div><b>Full speed</b>Uses your PC's CPU and graphics card.</div>
+      <div><b>Same account</b>Your plan and clips are shared with the app.</div>
+    </div>
+  </div></section>
+</main>
+{% include "_site_footer.html" %}
+<script>
+(() => {
+  const PORTS = {{ ports|list|tojson }};
+  const $ = id => document.getElementById(id);
+  const show = id => ["s-check", "s-open", "s-missing"].forEach(s => $(s).hidden = s !== id);
+
+  // Ask every port at once: whichever Recaply answers first wins.
+  function ping(port) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 1500);
+    return fetch(`http://127.0.0.1:${port}/__ping`, { cache: "no-store", signal: ctl.signal, targetAddressSpace: "loopback" })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => d && d.app === "recaply" ? port : Promise.reject())
+      .finally(() => clearTimeout(t));
+  }
+  const find = () => Promise.any(PORTS.map(ping)).catch(() => null);
+
+  let opening = false;
+  async function open(port) {
+    if (opening) return;
+    opening = true;
+    show("s-open");
+    try {
+      const r = await fetch("/app/connect", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.code) throw new Error(d.error || "Couldn't connect. Reload the page and try again.");
+      location.href = `http://127.0.0.1:${port}/__web?c=${encodeURIComponent(d.code)}`;
+    } catch (e) {
+      opening = false;
+      $("open-err").textContent = e.message;
+      $("open-err").hidden = false;
+    }
+  }
+
+  let timer = null;
+  function wait() {           // keep looking while the user starts or installs Recaply
+    clearInterval(timer);
+    timer = setInterval(async () => { const p = await find(); if (p) { clearInterval(timer); open(p); } }, 2000);
+  }
+
+  $("start").addEventListener("click", () => { $("waiting").textContent = "Starting Recaply… this takes a few seconds."; wait(); });
+  $("force").addEventListener("click", e => { e.preventDefault(); open(PORTS[0]); });
+  addEventListener("pageshow", e => { if (e.persisted) { opening = false; start(); } });   // came back with the Back button
+
+  async function start() {
+    show("s-check");
+    const p = await find();
+    if (p) return open(p);
+    show("s-missing");
+    wait();
+  }
+  start();
+})();
+</script>
+</body>
+</html>

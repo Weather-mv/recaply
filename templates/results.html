@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recap — Recaply</title>
+{% include "_theme.html" %}
+<style>
+  .wrap { max-width: var(--page); margin: 0 auto; padding: 40px 24px calc(150px + env(safe-area-inset-bottom)); }
+
+  /* Header */
+  .eyebrow { font-size: 14.5px; font-weight: 600; color: var(--accent-tx); margin-bottom: 8px; }
+  h1 { font-size: 40px; letter-spacing: -0.03em; line-height: 1.12; margin: 0; overflow-wrap: anywhere; max-width: 920px; }
+  .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; margin-top: 14px; font-size: 15px; color: var(--muted); }
+  .meta a { font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
+  .meta svg { width: 14px; height: 14px; }
+
+  /* Analyzing */
+  .work { margin-top: 32px; padding: 32px; display: grid; grid-template-columns: 1fr 300px; gap: 44px; align-items: center; }
+  .pct { font-family: var(--head); font-size: 68px; font-weight: 500; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .stage { color: var(--text); font-size: 16px; margin: 12px 0 4px; }
+  .eta { color: var(--muted); font-size: 14.5px; margin-bottom: 20px; min-height: 18px; }
+  .progress { height: 6px; background: var(--fill); border-radius: 99px; overflow: hidden; }
+  .progress > div { height: 100%; width: 0; border-radius: 99px; background: var(--grad); transition: width .8s var(--ease);
+                    box-shadow: 0 0 10px rgb(var(--accent-rgb) / .35); }
+  .leave { margin-top: 18px; font-size: 14px; color: var(--faint); }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+  .steps li { display: flex; align-items: center; gap: 12px; font-size: 15.5px; color: var(--faint); transition: color .4s var(--ease); }
+  .steps li i { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--line-2); flex: none; display: grid; place-items: center;
+                transition: background .4s var(--ease), border-color .4s var(--ease); }
+  .steps li.active { color: var(--text); }
+  .steps li.active i { border-color: #fff; border-top-color: transparent; animation: spin 1s linear infinite; }
+  .steps li.done { color: var(--muted); }
+  .steps li.done i { background: #fff; border-color: #fff; }
+  .steps li.done i::after { content: ""; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); margin-top: -2px; }
+  .errbox { margin-top: 32px; padding: 24px 28px; box-shadow: inset 3px 0 0 var(--glow-hi), var(--shadow); }
+  .errbox b { font-family: var(--head); font-size: 18px; display: block; margin-bottom: 6px; }
+  .errbox p { margin: 0 0 16px; color: var(--muted); }
+
+  details { margin-top: 18px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14.5px; list-style: none; display: inline-block; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: " ›"; display: inline-block; transition: transform .3s var(--ease); }
+  details[open] summary::after { transform: rotate(90deg); }
+  #log { background: var(--surface); border-radius: var(--radius); padding: 14px 16px; margin-top: 10px; box-shadow: var(--shadow);
+         font: 13.5px/1.65 ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--muted);
+         max-height: 240px; overflow-y: auto; white-space: pre-wrap; animation: fade .3s var(--ease); }
+
+  /* Stat tabs double as filters */
+  .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 32px; }
+  .tab { text-align: left; padding: 16px 20px; cursor: pointer; border: none; color: var(--text); position: relative;
+         transition: transform .375s var(--spring), box-shadow .45s var(--ease); }
+  .tab:hover { transform: scale(1.02); }
+  .tab.on { box-shadow: var(--shadow-hi); }
+  .tab .v { font-family: var(--head); font-size: 32px; font-weight: 500; letter-spacing: -0.03em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .tab .k { font-size: 14.5px; color: var(--muted); margin-top: 4px; }
+  .tab.on .k { color: var(--text); }
+  .tab.ace .v { color: var(--hot); }
+  .tab.ace .k b { display: inline-block; font-size: 12px; font-weight: 800; padding: 1px 7px; border-radius: 99px; background: var(--hot); color: #fff; margin-right: 6px; vertical-align: 1px; }
+  .tab.ace.on::after { background: var(--hot); }
+  .tab.on::after { content: ""; position: absolute; left: 20px; right: 20px; bottom: 0; height: 2px; border-radius: 2px;
+                   background: rgb(var(--ink) / .7); }
+
+  /* Clip settings: one-line summary that expands */
+  .settings { margin-top: 12px; padding: 0 20px; }
+  .set-head { display: flex; align-items: center; gap: 14px; min-height: 58px; cursor: pointer; }
+  .set-head .ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; flex: none;
+                  border: 1px solid var(--line); background: var(--surface); color: var(--accent-tx); }
+  .set-head .ic svg { width: 16px; height: 16px; }
+  .set-head b { font-family: var(--head); font-weight: 600; font-size: 16px; }
+  .set-sum { flex: 1; min-width: 0; color: var(--muted); font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .set-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .5s var(--ease); }
+  .settings.open .set-body { grid-template-rows: 1fr; }
+  .set-inner { overflow: hidden; }
+  .set-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr 0.8fr 1fr; gap: 18px; padding: 4px 0 20px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .stepper { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px; }
+  .stepper input { flex: 1; min-width: 0; text-align: center; background: none; border: none; color: var(--text);
+                   font: inherit; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stepper input:focus { outline: none; }
+  .stepper button { width: 34px; height: 34px; border-radius: 10px; border: none; background: var(--fill); color: var(--text);
+                    font-size: 18px; cursor: pointer; transition: background .3s var(--ease), transform .35s var(--spring); }
+  .stepper button:hover { background: var(--fill-2); }
+  .stepper button:active { transform: scale(.9); }
+  .unit { font-size: 13.5px; color: var(--muted); padding-right: 6px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .chips .chip { padding: 4px 10px; font-size: 13.5px; border-radius: 10px; }
+  .fmt { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius);
+         border: 1px solid var(--line); background: var(--surface); font-size: 14px; color: var(--muted); }
+  .fmt b { font-family: var(--head); font-weight: 700; font-size: 13px; letter-spacing: .04em; color: var(--text); padding: 2px 8px;
+           border-radius: 6px; background: var(--fill-2); }
+
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: 12px; margin: 26px 0 12px; flex-wrap: wrap; }
+  .search { position: relative; flex: 1; min-width: 220px; }
+  .search svg { position: absolute; left: 14px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+  .search .field { padding-left: 40px; padding-right: 44px; }
+  .search kbd { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font: 13px var(--body); color: var(--faint);
+                border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+  .seg.sort { width: 330px; }
+  .seg.sort button { white-space: nowrap; }
+  .others-sep { display: flex; align-items: center; gap: 12px; margin: 18px 2px 4px; font-size: 14px; color: var(--muted); }
+  .others-sep i { flex: 1; height: 1px; background: var(--line-2); }
+  .others-sep em { font-style: normal; font-size: 13px; padding: 1px 8px; border-radius: 99px; background: var(--fill); }
+  .others { display: contents; }
+  .others .round { opacity: .5; transition: opacity .35s var(--ease), background .35s var(--ease); }
+  .others .round:hover, .others .round.sel { opacity: 1; }
+  .seg.sort .dir { font-size: 13px; opacity: .7; margin-left: 3px; font-variant-numeric: tabular-nums; }
+  .picks { display: flex; gap: 6px; }
+  /* Filter buttons */
+  .filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 6px; margin: -2px 0 16px; }
+  .f-label { display: inline-flex; align-items: center; gap: 7px; font-size: 14.5px; color: var(--muted); margin-right: 6px; }
+  .f-label svg { width: 15px; height: 15px; color: var(--muted); }
+  .f-sep { width: 1px; height: 20px; background: var(--line-2); margin: 0 6px; }
+  .fchip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 12px; }
+  .fchip .n { font-size: 13px; font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 99px;
+              background: var(--fill); color: var(--muted); transition: background .3s var(--ease), color .3s var(--ease); }
+  .fchip.on .n { background: rgb(var(--on-ink-rgb) / .12); color: var(--on-ink); }
+  .f-clear { font-size: 14.5px; margin-left: 6px; }
+  .names { display: flex; align-items: center; gap: 10px; font-size: 14.5px; color: var(--muted); margin-bottom: 12px; animation: fade .4s var(--ease); }
+  .names .progress { width: 140px; height: 3px; }
+  /* Live stream status */
+  .live-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 14px 12px 16px; margin-bottom: 14px;
+              font-size: 15px; color: var(--muted); animation: fade .4s var(--ease); }
+  .live-bar #live-text { flex: 1; min-width: 180px; }
+  .live-bar #live-text b { color: var(--text); font-weight: 600; }
+  .live-bar .progress { flex-basis: 100%; height: 3px; order: 3; }
+
+  /* Round cards */
+  .list { display: grid; gap: 10px; }
+  .round { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); cursor: pointer; position: relative;
+           backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+           transition: background .35s var(--ease), box-shadow .45s var(--ease); }
+  .round:hover { background: var(--surface-2); }
+  .round.sel { box-shadow: inset 0 0 0 1px rgb(var(--ink) / .26), inset 0 -18px 50px -20px rgb(var(--ink) / .07); }
+  .round.in { animation: rise .7s var(--ease) both; }
+  .r-main { display: grid; grid-template-columns: 26px 116px 58px minmax(0, 1fr) 92px auto; gap: 18px; align-items: center; padding: 15px 18px; }
+  .r-when .rn { font-size: 13.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .r-when .rn .cl { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .r-when .ts { display: block; font-family: var(--head); font-size: 18px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .r-when .len { font-size: 13.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .r-kills { text-align: center; }
+  .r-kills b { display: block; font-family: var(--head); font-size: 24px; font-weight: 600; line-height: 1; }
+  .r-kills span { font-size: 13px; color: var(--muted); }
+  .tag { display: inline-block; font-size: 13.5px; font-weight: 500; padding: 3px 10px; border-radius: 99px; margin: 2px 4px 2px 0;
+         white-space: nowrap; background: var(--fill); color: rgb(var(--ink) / .8); }
+  .tag.ace { background: rgb(var(--ink) / .92); color: var(--on-ink); }
+  .tag.gold { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px rgb(var(--ink) / .3); }
+  .tag.red { background: var(--orange-bg); color: var(--text); }
+  .info { color: var(--faint); font-size: 14.5px; }
+  a.more { font-size: 14px; margin-left: 4px; white-space: nowrap; }
+  .r-int .bar { height: 4px; background: var(--fill); border-radius: 99px; overflow: hidden; }
+  .r-int .bar > div { height: 100%; border-radius: 99px; background: rgb(var(--ink) / .55); }
+  .r-int span { display: block; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .r-act { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 14.5px; color: var(--muted); white-space: nowrap; }
+  .r-act .failed { color: var(--glow-hi); cursor: help; }
+  /* per-clip progress while downloading / converting */
+  .dlp { width: 190px; }
+  .dlp-t { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--text); margin-bottom: 6px; }
+  .dlp-t span:first-child { display: inline-flex; align-items: center; }
+  .dlp-t .pc { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .dlp-bar { height: 4px; border-radius: 99px; background: var(--fill); overflow: hidden; }
+  .dlp-bar > div { height: 100%; width: 0; border-radius: 99px; background: var(--grad); box-shadow: 0 0 8px rgb(var(--accent-rgb) / .35);
+                   transition: width .45s linear; }
+  .dlp-bar.wait > div { width: 30% !important; animation: indet 1.3s var(--ease) infinite; }
+  @keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  /* save button fills up as the file transfers */
+  .btn.save { position: relative; overflow: hidden; min-width: 148px; }
+  .btn.save.busy { border-color: rgb(var(--ink) / .22); cursor: progress;
+                   background: linear-gradient(90deg, rgb(var(--accent-rgb) / .35) var(--p, 0%), var(--surface) var(--p, 0%)); }
+  .btn.save.busy:hover { transform: none; }
+  .btn.save.ok { border-color: rgb(var(--ink) / .3); color: var(--text); }
+  #zip.busy { pointer-events: none; opacity: .9; }
+  .ico { width: 14px; height: 14px; }
+  .feed { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 0 18px 16px 62px; font-size: 14.5px; color: var(--muted); cursor: default;
+          animation: fade .4s var(--ease) both; }
+  .feed .t { color: var(--faint); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .feed .k { color: var(--text); font-weight: 500; }
+  .feed .ar { color: var(--faint); margin: 0 6px; }
+  .empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+  .empty b { display: block; color: var(--text); font-family: var(--head); font-size: 17px; margin-bottom: 4px; }
+
+  /* Floating dock */
+  .dock { position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
+          width: min(780px, calc(100% - 28px)); padding: 10px 10px 10px 22px;
+          background: var(--glass); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+          border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow-hi);
+          animation: dock .6s var(--ease) both .2s; }
+  @keyframes dock { from { opacity: 0; transform: translate(-50%, 30px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  .dock-row { display: flex; align-items: center; gap: 16px; }
+  .dock .sum { flex: 1; min-width: 0; }
+  .dock #sel-sum { font-family: var(--head); font-weight: 600; font-size: 16px; }
+  .dock .links { display: flex; gap: 16px; font-size: 14.5px; margin-top: 1px; }
+  .dock .btn { padding: 12px 24px; }
+  .dock .acts { display: flex; gap: 8px; }
+  .dock #zipsel { min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .dock #zipsel .ico { width: 15px; height: 15px; }
+  .dock .progress { height: 3px; margin: 10px 12px 2px 0; }
+
+  /* Preview modal */
+  .modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; }
+  .modal-back { position: absolute; inset: 0; background: rgb(var(--scrim) / .72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+                animation: fade .3s var(--ease) both; }
+  .modal-card { position: relative; width: min(1040px, 100%); padding: 16px; background: rgb(var(--panel-rgb) / .92);
+                animation: pop .45s var(--spring) both; }
+  @keyframes pop { from { opacity: 0; transform: scale(.94) translateY(10px); } to { opacity: 1; transform: none; } }
+  .m-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 4px 12px; }
+  .m-sub { font-size: 14px; color: var(--muted); }
+  .m-title { font-family: var(--head); font-size: 18px; font-weight: 600; }
+  .m-nav { display: flex; gap: 6px; }
+  .iconbtn { width: 36px; height: 36px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+             display: grid; place-items: center; cursor: pointer; transition: border-color .3s var(--ease), transform .35s var(--spring); }
+  .iconbtn:hover { border-color: rgb(var(--ink) / .3); transform: scale(1.06); }
+  .iconbtn:disabled { opacity: .35; cursor: default; transform: none; border-color: var(--line); }
+  .iconbtn svg { width: 16px; height: 16px; }
+  .player { aspect-ratio: 16 / 9; width: 100%; background: #000; border-radius: 14px; overflow: hidden; }
+  .player iframe, .player video { width: 100%; height: 100%; border: 0; display: block; }
+  .m-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 4px 2px; }
+  .m-foot label { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 15px; }
+  .m-tags { min-width: 0; }
+  .m-foot .keys { font-size: 13.5px; color: var(--faint); }
+
+  /* Toast */
+  .toast { position: fixed; left: 50%; bottom: 112px; z-index: 60; transform: translateX(-50%); padding: 10px 18px; border-radius: 14px;
+           background: rgb(var(--panel-rgb) / .95); border: 1px solid var(--line-2); font-size: 15px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+           animation: toast 2.6s var(--ease) both; pointer-events: none; white-space: nowrap; }
+  @keyframes toast { 0% { opacity: 0; transform: translate(-50%, 12px); } 12%, 82% { opacity: 1; transform: translate(-50%, 0); }
+                     100% { opacity: 0; transform: translate(-50%, -6px); } }
+
+  @media (max-width: 1000px) {
+    .set-grid { grid-template-columns: 1fr 1fr; }
+    .r-main { grid-template-columns: 26px 108px 52px minmax(0, 1fr) auto; }
+    .r-int { display: none; }
+  }
+  @media (max-width: 700px) {
+    h1 { font-size: 28px; }
+    .work { grid-template-columns: 1fr; gap: 28px; padding: 24px; }
+    .pct { font-size: 52px; }
+    .tabs { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
+    .set-grid { grid-template-columns: 1fr; }
+    .set-sum { display: none; }
+    .seg.sort { width: 100%; }
+    .r-main { grid-template-columns: 26px 1fr auto; gap: 10px 14px; padding: 14px 16px; }
+    .r-kills { text-align: right; }
+    .r-tags, .r-act { grid-column: 2 / -1; }
+    .r-act { justify-content: flex-start; flex-wrap: wrap; }
+    .feed { padding-left: 56px; }
+    .dock { padding-left: 16px; }
+    .dock .btn { padding: 11px 16px; }
+    .m-foot .keys { display: none; }
+    /* filters: one swipeable row instead of three ragged ones */
+    .filters { flex-wrap: nowrap; overflow-x: auto; margin: -2px -24px 16px; padding: 2px 24px 4px;
+               scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity;
+               -webkit-mask: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent);
+                       mask: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 24px), transparent); }
+    .filters::-webkit-scrollbar { display: none; }
+    .filters > * { flex: none; scroll-snap-align: start; }
+    .picks { flex: 1; }
+    .picks .chip { flex: 1; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+    .search kbd { display: none; }
+    .search .field { padding-right: 16px; }
+    .search .field, #parallel { font-size: 16px; }  /* 16px stops iOS zooming into the field */
+  }
+  @media (max-width: 560px) {
+    /* dock: summary on top, full-width buttons below */
+    .dock { padding: 12px; border-radius: 20px; width: calc(100% - 20px); bottom: calc(10px + env(safe-area-inset-bottom)); }
+    .dock-row { flex-wrap: wrap; gap: 10px; }
+    .dock .sum { flex: 1 1 100%; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 4px; }
+    .dock #sel-sum { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dock .links { gap: 12px; font-size: 14px; flex: none; }
+    .dock .acts { flex: 1 1 100%; }
+    .dock .acts .btn { flex: 1; padding: 11px 12px; }
+    .dock #zipsel { flex: 0 1 40%; justify-content: center; }
+    .dock .progress { margin: 8px 4px 0; }
+    .wrap { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
+    .toast { bottom: calc(150px + env(safe-area-inset-bottom)); max-width: calc(100% - 32px); white-space: normal; text-align: center; }
+  }
+  @media (max-width: 480px) {
+    .wrap { padding-left: 16px; padding-right: 16px; padding-top: 28px; }
+    .filters { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+    h1 { font-size: 24px; }
+    .meta { gap: 8px 14px; font-size: 14.5px; }
+    .tabs { gap: 8px; margin-top: 24px; }
+    .tab { padding: 12px 14px; border-radius: 18px; }
+    .tab .v { font-size: 26px; }
+    .tab .k { font-size: 13.5px; }
+    .tab.on::after { left: 14px; right: 14px; }
+    .settings { padding: 0 14px; }
+    .set-head { gap: 10px; }
+    .toolbar { gap: 10px; margin-top: 20px; }
+    .search { min-width: 100%; }
+    .r-main { grid-template-columns: 22px 1fr auto; gap: 8px 12px; padding: 12px 14px; }
+    .r-act .btn.sm { flex: 1; }
+    .btn.save { min-width: 0; }
+    .dlp { width: 100%; }
+    .feed { padding: 0 14px 14px 48px; gap: 6px 16px; }
+    .work { padding: 20px; }
+    .pct { font-size: 44px; }
+    /* preview: full-width sheet at the bottom, controls within thumb reach */
+    .modal { padding: 0; place-items: end center; }
+    .modal-card { width: 100%; border-radius: 22px 22px 0 0; padding: 12px 12px calc(14px + env(safe-area-inset-bottom)); }
+    .m-title { font-size: 16px; }
+    .player { border-radius: 12px; }
+  }
+  @media (max-width: 360px) {
+    .dock .links #zip { display: none; }
+    .tab .v { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+{% set active = 'recaps' %}{% include "_nav.html" %}
+
+<div class="wrap">
+  <div class="eyebrow rise" id="eyebrow">Recap</div>
+  <h1 id="title" class="rise d1">Analyzing…</h1>
+  <div class="meta rise d2">
+    <span id="badge" class="pill analyzing">analyzing</span>
+    <span id="m-len" hidden></span>
+    <a id="m-src" href="#" target="_blank" rel="noopener" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>Open VOD</a>
+    <a id="m-copy" href="#" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy all timestamps</a>
+  </div>
+
+  <div id="work" class="card work rise d3">
+    <div>
+      <div class="pct" id="pct">0%</div>
+      <div class="stage" id="stage">Starting…</div>
+      <div class="eta" id="eta"></div>
+      <div class="progress"><div id="progress"></div></div>
+      <div class="leave">You can leave this page. The recap keeps running and appears under Recent.</div>
+    </div>
+    <ol class="steps" id="steps"></ol>
+  </div>
+  <div id="err" class="card errbox" hidden>
+    <b>Couldn't finish this recap</b>
+    <p id="err-msg"></p>
+    <a class="btn sm" href="/app">Try another link</a>
+  </div>
+  <details id="log-box"><summary>Show log</summary><div id="log"></div></details>
+
+  <div id="picker" hidden>
+    <div class="card live-bar" id="live" hidden>
+      <span class="pill live" id="live-pill">Live</span>
+      <span id="live-text"></span>
+      <button class="btn sm ghost" id="live-act" type="button" hidden></button>
+      <div class="progress" id="live-prog" hidden><div id="live-fill"></div></div>
+    </div>
+    <div class="tabs fade">
+      <button class="card tab on" data-filter="all"><div class="v" id="n-all">0</div><div class="k" id="k-all">All rounds</div></button>
+      <button class="card tab" data-filter="clutch"><div class="v" id="n-clutch">0</div><div class="k">Clutches</div></button>
+      <button class="card tab ace" data-filter="ace" title="Rounds where one player killed all five enemies"><div class="v" id="n-ace">0</div><div class="k"><b>ACE</b>Aces</div></button>
+      <button class="card tab" data-filter="multi"><div class="v" id="n-multi">0</div><div class="k" id="k-multi">Multi-kills</div></button>
+      <button class="card tab" data-filter="selected"><div class="v" id="n-sel">0</div><div class="k" id="k-sel">Selected</div></button>
+    </div>
+
+    <div class="card settings fade d1" id="settings">
+      <div class="set-head" id="set-head" role="button" aria-expanded="false" tabindex="0">
+        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
+        <b>Clip settings</b>
+        <span class="set-sum" id="set-sum"></span>
+        <button class="btn sm ghost" id="set-toggle" type="button">Edit</button>
+      </div>
+      <div class="set-body"><div class="set-inner">
+        <div class="set-grid">
+          <div>
+            <span class="label">Start before the round</span>
+            <div class="stepper"><button data-step="lead" data-d="-1" aria-label="Less">−</button><input type="number" id="lead" min="0" max="120" step="1"><span class="unit">sec</span><button data-step="lead" data-d="1" aria-label="More">+</button></div>
+            <div class="chips" id="lead-chips">
+              <button class="chip" data-lead="0">0s</button><button class="chip" data-lead="5">5s</button>
+              <button class="chip" data-lead="10">10s</button><button class="chip" data-lead="15">15s</button>
+              <button class="chip" data-lead="30">30s</button>
+            </div>
+          </div>
+          <div>
+            <span class="label">Keep after the round</span>
+            <div class="stepper"><button data-step="tail" data-d="-1" aria-label="Less">−</button><input type="number" id="tail" min="0" max="60" step="1"><span class="unit">sec</span><button data-step="tail" data-d="1" aria-label="More">+</button></div>
+          </div>
+          <div>
+            <span class="label">Quality</span>
+            <div class="seg" id="q-seg" style="--n:3">
+              <button data-q="1080" class="on">1080p</button><button data-q="720">720p</button><button data-q="best">Best</button>
+            </div>
+            <input type="hidden" id="quality" value="1080">
+          </div>
+          <div>
+            <span class="label">At once</span>
+            <select class="field" id="parallel">
+              <option>1</option><option>2</option><option selected>3</option><option>4</option><option>6</option>
+            </select>
+          </div>
+          <div>
+            <span class="label">Format</span>
+            <div class="fmt"><b>MP4</b><span>H.264 + AAC</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="toolbar fade d2">
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input class="field" id="q" type="search" placeholder="Search players, clutches, badges…" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+      <div class="seg sort" id="sort-seg" style="--n:3">
+        <button data-sort="score" class="on">Best</button><button data-sort="round" id="sort-round" title="Round order: click again to reverse">Round <span class="dir" id="sort-dir">1→N</span></button><button data-sort="kills">Kills</button>
+      </div>
+      <div class="picks">
+        <button class="chip" data-pick="10" title="Select the 10 most intense">Top 10</button>
+        <button class="chip" data-pick="shown" title="Select every round in the list">Select shown</button>
+        <button class="chip" data-pick="none">Clear</button>
+      </div>
+    </div>
+
+    <div class="filters fade d3" id="filters" hidden></div>
+
+    <div class="names" id="names" hidden><span class="spin"></span><span id="names-text">Reading player names…</span><div class="progress"><div id="names-bar"></div></div></div>
+    <div class="list" id="rows"></div>
+    <div class="card empty" id="empty" hidden><b id="empty-t">Nothing here</b><span id="empty-s"></span></div>
+
+    <div class="dock">
+      <div class="dock-row">
+        <div class="sum">
+          <div id="sel-sum"></div>
+          <div class="links"><a href="#" id="copy-ts">Copy timestamps</a><a id="zip" href="#" hidden>Download .zip</a></div>
+        </div>
+        <div class="acts">
+          <button class="btn ghost save" id="zipsel" title="Download the selected clips (if needed), zip them and save the .zip" disabled></button>
+          <button class="btn" id="go">Download</button>
+        </div>
+      </div>
+      <div class="progress" id="dl-bar-wrap" hidden><div id="dl-bar"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-back" data-close></div>
+  <div class="card modal-card" role="dialog" aria-modal="true" aria-labelledby="m-title">
+    <div class="m-head">
+      <div><div class="m-sub" id="m-sub"></div><div class="m-title" id="m-title"></div></div>
+      <div class="m-nav">
+        <button class="iconbtn" id="m-prev" aria-label="Previous round"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="iconbtn" id="m-next" aria-label="Next round"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+        <button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+    </div>
+    <div class="player" id="player"></div>
+    <div class="m-foot">
+      <label><input type="checkbox" id="m-sel">Include in download</label>
+      <div class="m-tags" id="m-tags"></div>
+      <span class="keys">← → switch rounds · S select · Esc close</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const jobId = "{{ job_id }}";
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const pad = n => String(n).padStart(2, "0");
+  const dur = s => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+  const hms = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+                     return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`; };
+  const ICON = {
+    edit: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    reel: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/></svg>',
+    zip: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>',
+    play: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    down: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>',
+    eye: '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  };
+
+  let job = null, cands = [], selected = new Set(), sortKey = "score", sortAsc = true, built = false;
+  try { const s = JSON.parse(localStorage.getItem("rc_sort") || "null"); if (s && ["score", "round", "kills"].includes(s.k)) { sortKey = s.k; sortAsc = s.a !== false; } } catch (e) {}
+  let touched = false, namesVersion = 0, feedOpen = new Set(), firstBuild = true;
+  let filter = "all", query = "", batch = new Set(), modalId = null, modalMode = null;
+
+  const leadVal = () => Math.max(0, +$("lead").value || 0);
+  const tailVal = () => Math.max(0, +$("tail").value || 0);
+  const clipLen = c => c.end - c.start + leadVal() + tailVal();
+  const isRounds = () => job && job.mode === "rounds";
+
+  function toast(msg) {
+    document.querySelectorAll(".toast").forEach(t => t.remove());
+    const t = document.createElement("div");
+    t.className = "toast"; t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2700);
+  }
+
+  function tagHtml(t) {
+    const cls = /^(ACE|4K)/.test(t) ? "ace" : /CLUTCH|won/.test(t) ? "gold" : /^1v|kills in|^3K/.test(t) ? "red" : "";
+    return `<span class="tag ${cls}">${esc(t)}</span>`;
+  }
+
+  // ---------- filter buttons ----------
+  // Buttons in the same group are OR'd ("ACE or 4K"); groups are AND'd
+  // ("4K" and "VIT"). Team buttons come from the names in the badges.
+  const hasTag = (c, re) => c.tags.some(t => re.test(t));
+  const dlState = c => (job.downloads[String(c.id)] || {}).state;
+  const BASE_FILTERS = [
+    { g: "multi", id: "ace", label: "ACE", test: c => (c.multikill || 0) >= 5 },
+    { g: "multi", id: "4k", label: "4K", test: c => (c.multikill || 0) === 4 },
+    { g: "multi", id: "3k", label: "3K", test: c => (c.multikill || 0) === 3 },
+    { g: "clutch", id: "won", label: "Clutch won", test: c => hasTag(c, /won/) },
+    { g: "clutch", id: "1vx", label: "Any 1vX", test: c => hasTag(c, /^1v/) || hasTag(c, /CLUTCH/) },
+    { g: "moment", id: "burst", label: "Kill burst", test: c => hasTag(c, /kills in/) },
+    { g: "moment", id: "hype", label: "Crowd hype", test: c => hasTag(c, /crowd hype/) },
+    { g: "moment", id: "k7", label: "7+ kills", test: c => (c.kills || 0) >= 7 },
+    { g: "status", id: "done", label: "Downloaded", test: c => dlState(c) === "done" },
+    { g: "status", id: "todo", label: "Not downloaded", test: c => dlState(c) !== "done" },
+  ];
+  const activeFilters = new Set();
+  function teamOf(tag) { const m = tag.match(/·\s+([A-Z0-9]{2,5})\s+\S/); return m ? m[1] : null; }
+  function allFilters() {
+    const teams = new Map();
+    cands.forEach(c => c.tags.forEach(t => { const tm = teamOf(t); if (tm) teams.set(tm, (teams.get(tm) || 0) + 1); }));
+    const teamFilters = [...teams.keys()].sort().map(tm => ({
+      g: "team", id: "team:" + tm, label: tm, test: c => c.tags.some(t => teamOf(t) === tm) }));
+    const status = BASE_FILTERS.filter(f => f.g === "status");
+    const top = new Set([...cands].sort((a, b) => b.score - a.score).slice(0, 10).map(c => c.id));
+    const pickFilters = [{ g: "pick", id: "top10", label: "Top 10", test: c => top.has(c.id) }];
+    return [...pickFilters, ...BASE_FILTERS.filter(f => f.g !== "status"), ...teamFilters, ...status];
+  }
+  function passFilters(c) {
+    const groups = {};
+    allFilters().forEach(f => { if (activeFilters.has(f.id)) (groups[f.g] = groups[f.g] || []).push(f); });
+    return Object.values(groups).every(fs => fs.some(f => f.test(c)));
+  }
+  function renderFilters() {
+    const fs = allFilters().map(f => ({ ...f, n: cands.filter(f.test).length }))
+      .filter(f => f.n > 0 || activeFilters.has(f.id));
+    // a status button is only useful once something has been downloaded
+    const anyDone = cands.some(c => dlState(c) === "done");
+    // Top 10 only shows as a filter once its button has been used
+    const shown = fs.filter(f => (f.g !== "status" || anyDone) && (f.g !== "pick" || activeFilters.has(f.id)));
+    const html = [`<span class="f-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>Filters</span>`];
+    let lastG = null;
+    shown.forEach(f => {
+      if (lastG && f.g !== lastG) html.push('<span class="f-sep"></span>');
+      lastG = f.g;
+      html.push(`<button class="chip fchip ${activeFilters.has(f.id) ? "on" : ""}" data-f="${esc(f.id)}" aria-pressed="${activeFilters.has(f.id)}">${esc(f.label)}<span class="n">${f.n}</span></button>`);
+    });
+    if (activeFilters.size) html.push(`<a href="#" class="f-clear" data-fclear>Clear filters</a>`);
+    const h = html.join("");
+    const box = $("filters");
+    if (box.dataset.h !== h) { box.innerHTML = h; box.dataset.h = h; }
+    box.hidden = shown.length === 0;
+  }
+
+  // ---------- filtering ----------
+  function matches(c, skipFilters) {
+    if (filter === "clutch" && !c.clutch) return false;
+    if (filter === "multi" && (c.multikill || 0) < 3) return false;
+    if (filter === "ace" && (c.multikill || 0) < 5) return false;
+    if (filter === "selected" && !selected.has(c.id)) return false;
+    if (!skipFilters && activeFilters.size && !passFilters(c)) return false;
+    if (!query) return true;
+    const hay = [c.label, c.info, ...c.tags, ...(c.killfeed || []).flatMap(([, k, v]) => [k, v])].join(" ").toLowerCase();
+    return query.split(/\s+/).every(w => hay.includes(w));
+  }
+  const byRound = dir => (a, b) => dir * (a.start - b.start || a.id - b.id);
+  const bySort = () => sortKey === "round" ? byRound(sortAsc ? 1 : -1)
+                     : (a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0) || a.start - b.start;
+  // With filter buttons on, the matching clips go on top in round order
+  function visible() {
+    const list = cands.filter(c => matches(c));
+    return list.sort(activeFilters.size ? byRound(sortKey === "round" && !sortAsc ? -1 : 1) : bySort());
+  }
+  // ...and everything else stays below them, dimmed
+  function others() {
+    return activeFilters.size ? cands.filter(c => matches(c, true) && !passFilters(c)).sort(bySort()) : [];
+  }
+
+  // ---------- cards ----------
+  function statusHtml(c) {
+    const d = job.downloads[String(c.id)];
+    const preview = `<button class="btn sm ghost" data-preview="${c.id}" title="Watch this round in the VOD">${ICON.eye}Preview</button>`;
+    if (!d) return preview + `<button class="btn sm ghost" data-one="${c.id}" title="Download just this round">${ICON.down}</button>`;
+    if (["queued", "downloading", "converting"].includes(d.state))
+      return `<div class="dlp" data-dlp="${c.id}"><div class="dlp-t"><span><span class="spin"></span><b class="lbl">${stageLabel(d)}</b></span><span class="pc"></span></div>` +
+             `<div class="dlp-bar ${d.state === "queued" ? "wait" : ""}"><div></div></div></div>`;
+    if (d.state === "failed") return `<span class="failed" title="${esc(d.error)}">Failed</span><button class="btn sm ghost" data-one="${c.id}">Retry</button>`;
+    return `<button class="btn sm ghost" data-play="${c.id}">${ICON.play}Play</button>` + saveBtnHtml(c, d) +
+           `<a class="btn sm ghost" href="/reels?job=${jobId}&clip=${c.id}" title="Make a 9:16 reel of this clip">${ICON.reel}Reel</a>` +
+           `<a class="btn sm ghost" href="/editor?job=${jobId}&clip=${c.id}" title="Open this clip in the editor">${ICON.edit}Edit</a>`;
+  }
+
+  // ---------- per-clip progress ----------
+  let clockOffset = 0;   // server time minus local time, seconds
+  const stageLabel = d => d.state === "queued" ? "Queued" : d.state === "converting" ? "Converting to MP4" : "Downloading";
+  function clipFrac(d) {
+    if (!d) return 0;
+    if (d.state === "done" || d.state === "failed") return 1;
+    if (d.state === "converting") return 0.85 + 0.15 * (d.progress || 0);
+    if (d.state === "downloading" && d.started && d.expected) {
+      const el = Date.now() / 1000 + clockOffset - d.started;
+      // ease towards 95% of the download share; the real finish jumps it forward
+      return 0.85 * Math.min(0.95, 1 - Math.exp(-1.6 * el / d.expected));
+    }
+    return 0;
+  }
+  function tickProgress() {
+    if (!job || document.hidden) return;
+    document.querySelectorAll("[data-dlp]").forEach(el => {
+      const d = job.downloads[el.dataset.dlp];
+      if (!d) return;
+      const f = clipFrac(d);
+      el.querySelector(".dlp-bar > div").style.width = (f * 100).toFixed(1) + "%";
+      el.querySelector(".pc").textContent = d.state === "queued" ? "" : Math.round(f * 100) + "%";
+      el.querySelector(".lbl").textContent = stageLabel(d);
+      el.querySelector(".dlp-bar").classList.toggle("wait", d.state === "queued");
+    });
+    if (batch.size) {
+      const sum = [...batch].reduce((s, id) => s + clipFrac(job.downloads[String(id)]), 0);
+      $("dl-bar").style.width = (100 * sum / batch.size).toFixed(1) + "%";
+    }
+  }
+  setInterval(tickProgress, 400);
+
+  // ---------- saving a finished clip (or the zip) with visible progress ----------
+  const saving = new Map();   // key -> {text, p, ok}
+  function saveBtnHtml(c, d) {
+    const s = saving.get(String(c.id));
+    const idle = `${ICON.down}MP4${d.size_mb ? ` · ${d.size_mb} MB` : ""}`;
+    return `<button class="btn sm ghost save ${s && !s.ok ? "busy" : ""} ${s && s.ok ? "ok" : ""}" data-save="${c.id}"` +
+           ` title="Save as H.264 + AAC MP4" style="--p:${s ? s.p : 0}%">${s ? s.text : idle}</button>`;
+  }
+  function paintSave(key) {
+    const s = saving.get(key);
+    if (key === "zipsel") return paintZipSel();
+    const btn = key === "zip" ? $("zip") : document.querySelector(`[data-save="${key}"]`);
+    if (!btn) return;
+    if (key !== "zip") {
+      const c = cands.find(x => String(x.id) === key), d = job.downloads[key];
+      if (c && d) { btn.outerHTML = saveBtnHtml(c, d); }
+      const cell = document.querySelector(`[data-st="${key}"]`);
+      if (cell) cell.dataset.h = statusHtml(c);
+      return;
+    }
+    btn.classList.toggle("busy", !!(s && !s.ok));
+    btn.innerHTML = s ? s.text : `Download ${Object.values(job.downloads).filter(d => d.state === "done").length} as .zip`;
+  }
+  // A single clip downloads straight from storage (the browser shows its own progress).
+  function saveLink(url, name) {
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    toast(`Saving ${name}`);
+  }
+  async function saveFile(key, url, name) {
+    if (saving.has(key) && !saving.get(key).ok) return;
+    const set = (text, p = 0, ok = false) => { saving.set(key, { text, p, ok }); paintSave(key); };
+    const isZip = key.startsWith("zip");
+    set(`<span class="spin"></span>${isZip ? "Zipping…" : "Preparing MP4…"}`);
+    let got = false;
+    const slow = setTimeout(() => { if (!got && !isZip) set(`<span class="spin"></span>Converting to MP4…`); }, 2500);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status);
+      got = true; clearTimeout(slow);
+      const total = +res.headers.get("Content-Length") || 0;
+      const reader = res.body.getReader();
+      const chunks = []; let n = 0, last = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value); n += value.length;
+        if (Date.now() - last > 120) {
+          last = Date.now();
+          const p = total ? 100 * n / total : 0;
+          set(`${ICON.down}Saving ${total ? Math.round(p) + "%" : (n / 1e6).toFixed(1) + " MB"}`, p.toFixed(1));
+        }
+      }
+      const blob = new Blob(chunks, { type: res.headers.get("Content-Type") || (isZip ? "application/zip" : "video/mp4") });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      set("✓ Saved", 100, true);
+      toast(`Saved ${name}`);
+    } catch (e) {
+      set("Retry save", 0, true);
+      toast("Couldn't save the file. Try again");
+    } finally {
+      clearTimeout(slow);
+      setTimeout(() => { saving.delete(key); paintSave(key); }, 2200);
+    }
+  }
+
+  function cardHtml(c, max, anim, i) {
+    return `
+      <div class="round ${selected.has(c.id) ? "sel" : ""} ${anim ? "in" : ""}" data-id="${c.id}"${anim ? ` style="animation-delay:${60 + i * 30}ms"` : ""}>
+        <div class="r-main">
+          <input type="checkbox" data-box="${c.id}" ${selected.has(c.id) ? "checked" : ""} aria-label="Select ${esc(c.label)}">
+          <div class="r-when">
+            <div class="rn">${c.clutch ? '<i class="cl"></i>' : ""}${esc(c.label)}</div>
+            <span class="ts">${hms(c.start)}</span>
+            <div class="len" data-len="${c.id}">${dur(clipLen(c))} clip</div>
+          </div>
+          <div class="r-kills">${isRounds() ? `<b>${c.kills ?? "—"}</b><span>kills</span>` : `<b>${c.score}</b><span>loud</span>`}</div>
+          <div class="r-tags">${c.tags.length ? c.tags.map(tagHtml).join("") : `<span class="info">${esc(c.info)}</span>`}${(c.killfeed || []).length ? `<a href="#" class="more" data-feed="${c.id}">${feedOpen.has(c.id) ? "Hide kill feed" : "Kill feed"}</a>` : ""}</div>
+          <div class="r-int"><div class="bar"><div style="width:${Math.round(100 * c.score / max)}%"></div></div><span>Intensity ${c.score}</span></div>
+          <div class="r-act" data-st="${c.id}">${statusHtml(c)}</div>
+        </div>
+        ${feedOpen.has(c.id) && (c.killfeed || []).length ? `<div class="feed">${c.killfeed.map(([t, k, v]) =>
+          `<span><span class="t">${dur(t + leadVal())}</span><span class="k">${esc(k)}</span><span class="ar">→</span>${esc(v)}</span>`).join("")}</div>` : ""}
+      </div>`;
+  }
+
+  function build() {
+    const max = Math.max(1, ...cands.map(c => c.score));
+    const list = visible(), rest = others();
+    $("rows").innerHTML = list.map((c, i) => cardHtml(c, max, firstBuild && i < 16, i)).join("") +
+      (rest.length ? `<div class="others-sep"><span>Other ${isRounds() ? "rounds" : "moments"}</span><i></i><em>${rest.length}</em></div>` +
+        `<div class="others">${rest.map((c, i) => cardHtml(c, max, false, i)).join("")}</div>` : "");
+    firstBuild = false;
+    renderFilters();
+    const empty = !list.length && !rest.length;
+    $("empty").hidden = !empty;
+    if (empty) {
+      const following = job && LIVE_ACTIVE.includes(job.live_state);
+      $("empty-t").textContent = !cands.length ? (following ? "No finished rounds yet" : "Nothing found in this video") : "No rounds match";
+      $("empty-s").textContent = !cands.length ? (following ? "Rounds appear here as they end. You can leave and come back."
+        : "Try Loudness mode for videos without a tournament overlay.")
+        : query ? `Nothing matches “${query}”.` : activeFilters.size ? "Try removing a filter button."
+        : filter === "selected" ? "Tick rounds to add them to your download."
+        : filter === "ace" ? "No ACEs in this match. ACEs are found from the kill feed's player names, so keep “Read player names” on when you make a recap."
+        : "Try another filter.";
+    }
+    counts();
+    summary();
+  }
+
+  function counts() {
+    const aces = cands.filter(c => (c.multikill || 0) >= 5).length;
+    $("n-all").textContent = cands.length;
+    $("k-all").textContent = isRounds() ? "All rounds" : "All moments";
+    $("n-clutch").textContent = cands.filter(c => c.clutch).length;
+    $("n-multi").textContent = cands.filter(c => (c.multikill || 0) >= 3).length;
+    $("n-ace").textContent = aces;
+    $("k-multi").textContent = "Multi-kills";
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.filter === filter));
+  }
+
+  function summary() {
+    const sel = cands.filter(c => selected.has(c.id));
+    const total = sel.reduce((s, c) => s + clipLen(c), 0);
+    $("sel-sum").textContent = sel.length ? `${sel.length} clip${sel.length === 1 ? "" : "s"} · ${hms(total)}` : "Nothing selected";
+    $("n-sel").textContent = sel.length;
+    $("k-sel").textContent = sel.length ? `Selected · ${hms(total)}` : "Selected";
+    $("go").disabled = !sel.length;
+    $("go").textContent = sel.length ? `Download ${sel.length}` : "Download";
+    paintZipSel();
+    document.querySelectorAll("#lead-chips .chip").forEach(b => b.classList.toggle("on", +b.dataset.lead === leadVal()));
+    const q = { "1080": "1080p", "720": "720p", best: "best quality" }[$("quality").value];
+    $("set-sum").textContent = `${leadVal()}s before · ${tailVal()}s after · ${q} · ${$("parallel").value} at once · MP4`;
+  }
+
+  function refreshStatus() {
+    cands.forEach(c => {
+      const cell = document.querySelector(`[data-st="${c.id}"]`);
+      if (cell) { const h = statusHtml(c); if (cell.dataset.h !== h) { cell.innerHTML = h; cell.dataset.h = h; } }
+    });
+    const downloads = job.downloads || {};
+    const done = Object.values(downloads).filter(d => d.state === "done").length;
+    tickProgress();
+    const statusKey = cands.map(c => dlState(c) === "done" ? 1 : 0).join("");
+    if (statusKey !== refreshStatus.last) {
+      refreshStatus.last = statusKey;
+      if (activeFilters.has("done") || activeFilters.has("todo")) build(); else renderFilters();
+    }
+    paintZipSel();
+    if (zipWait && zipWait.every(id => ["done", "failed"].includes(dlState(cands.find(c => c.id === id))))) finishZipSel();
+    $("zip").hidden = done === 0;
+    if (!saving.has("zip")) $("zip").textContent = `Download ${done} as .zip`;
+    // batch progress in the dock
+    if (batch.size) {
+      const states = [...batch].map(id => (downloads[String(id)] || {}).state);
+      const finished = states.filter(s => s === "done" || s === "failed").length;
+      $("dl-bar-wrap").hidden = false;
+      tickProgress();
+      if (finished === batch.size) {
+        const failed = states.filter(s => s === "failed").length;
+        toast(failed ? `${batch.size - failed} clips ready, ${failed} failed` : `${batch.size} clip${batch.size === 1 ? "" : "s"} ready as MP4`);
+        batch.clear();
+        setTimeout(() => { $("dl-bar-wrap").hidden = true; }, 600);
+      } else {
+        $("sel-sum").textContent = `Downloading ${Math.min(batch.size, finished + 1)} of ${batch.size}`;
+      }
+    }
+    if (modalId !== null && modalMode === "clip") syncModalFoot();
+  }
+
+  // ---------- selection ----------
+  function toggle(id, on) {
+    const want = on ?? !selected.has(id);
+    want ? selected.add(id) : selected.delete(id);
+    touched = true;
+    const card = document.querySelector(`.round[data-id="${id}"]`);
+    if (card) { card.classList.toggle("sel", want); card.querySelector("input").checked = want; }
+    if (modalId === id) $("m-sel").checked = want;
+    summary();
+    if (filter === "selected") build();
+  }
+  function pick(kind) {
+    touched = true;
+    if (kind === "none") { visible().forEach(c => selected.delete(c.id)); }
+    else if (kind === "shown") visible().forEach(c => selected.add(c.id));
+    else {
+      [...cands].sort((a, b) => b.score - a.score).slice(0, +kind).forEach(c => selected.add(c.id));
+      activeFilters.add("top10");  // show them on top, in round order
+    }
+    build();
+  }
+
+  // ---------- zip the selection ----------
+  let zipWait = null;  // ids we're downloading before zipping them
+  function paintZipSel() {
+    const b = $("zipsel"), s = saving.get("zipsel");
+    const n = cands.filter(c => selected.has(c.id)).length;
+    if (zipWait) {
+      const got = zipWait.filter(id => dlState(cands.find(c => c.id === id)) === "done").length;
+      b.classList.add("busy"); b.disabled = false;
+      b.style.setProperty("--p", (100 * got / zipWait.length).toFixed(1) + "%");
+      b.innerHTML = `<span class="spin"></span><span class="lbl">Getting clips ${got}/${zipWait.length}</span>`;
+    } else if (s) {
+      b.classList.toggle("busy", !s.ok); b.disabled = false;
+      b.style.setProperty("--p", s.p + "%");
+      b.innerHTML = `<span class="lbl">${s.text}</span>`;
+    } else {
+      b.classList.remove("busy"); b.disabled = !n;
+      b.style.setProperty("--p", "0%");
+      b.innerHTML = `${ICON.zip}<span class="lbl">${n ? `Zip ${n}` : "Zip"}</span>`;
+    }
+  }
+  function zipSelected() {
+    if (zipWait || (saving.has("zipsel") && !saving.get("zipsel").ok)) return;
+    const ids = cands.filter(c => selected.has(c.id)).sort((a, b) => a.start - b.start).map(c => c.id);
+    if (!ids.length) return;
+    const missing = ids.filter(id => !["done", "queued", "downloading", "converting"].includes(dlState(cands.find(c => c.id === id))));
+    zipWait = ids;
+    if (missing.length) download(missing);
+    paintZipSel();
+    refreshStatus();  // zips straight away if everything is already downloaded
+  }
+  function finishZipSel() {
+    const ids = zipWait.filter(id => dlState(cands.find(c => c.id === id)) === "done");
+    const failed = zipWait.length - ids.length;
+    zipWait = null;
+    if (!ids.length) { paintZipSel(); return toast("Couldn't download the selected clips"); }
+    if (failed) toast(`${failed} clip${failed === 1 ? "" : "s"} failed, zipping the other ${ids.length}`);
+    saveFile("zipsel", `/api/job/${jobId}/zip?ids=${ids.join(",")}`, `recaply_${jobId}_${ids.length}clips.zip`);
+  }
+
+  // ---------- downloads ----------
+  async function download(ids) {
+    if (!ids.length) return;
+    ids.forEach(id => {
+      batch.add(id);
+      // show "Queued" right away instead of waiting for the next status poll
+      const d = job.downloads[String(id)];
+      if (!d || !["queued", "downloading", "converting"].includes(d.state)) job.downloads[String(id)] = { state: "queued" };
+    });
+    refreshStatus();
+    const res = await fetch(`/api/job/${jobId}/download`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ ids, lead: leadVal(), tail: tailVal(), parallel: +$("parallel").value, quality: $("quality").value }),
+    }).catch(() => null);
+    // plan limits and offline errors are shown by recaply.js; the status poll puts the rows back
+    if (res && res.ok) toast(ids.length === 1 ? "Downloading 1 clip" : `Downloading ${ids.length} clips`);
+    else ids.forEach(id => batch.delete(id));
+    poll();
+  }
+
+  // ---------- preview modal ----------
+  function embedUrl(c) {
+    const s = Math.max(0, Math.floor(c.start - leadVal()));
+    const u = job.url || "";
+    let m = u.match(/(?:youtu\.be\/|[?&]v=|\/(?:live|shorts|embed)\/)([\w-]{11})/);
+    if (m) return `https://www.youtube-nocookie.com/embed/${m[1]}?start=${s}&autoplay=1&rel=0&modestbranding=1`;
+    m = u.match(/twitch\.tv\/videos\/(\d+)/);
+    if (m) return `https://player.twitch.tv/?video=v${m[1]}&time=${Math.floor(s / 3600)}h${Math.floor(s % 3600 / 60)}m${s % 60}s&parent=${location.hostname}&autoplay=true`;
+    return null;
+  }
+  function openModal(id, mode) {
+    const c = cands.find(x => x.id === id);
+    if (!c) return;
+    const d = job.downloads[String(id)];
+    if (mode === "vod" && !embedUrl(c)) { window.open(c.link, "_blank", "noopener"); return; }
+    modalId = id; modalMode = mode;
+    $("m-sub").textContent = `${c.label} · starts ${hms(c.start)}${isRounds() && c.kills != null ? ` · ${c.kills} kills` : ""}`;
+    $("m-title").textContent = mode === "clip" ? "Your clip" : "Preview in the VOD";
+    $("player").innerHTML = mode === "clip" && d && d.state === "done"
+      ? `<video controls autoplay src="/clips/${jobId}/${encodeURIComponent(d.file)}"></video>`
+      : `<iframe src="${embedUrl(c)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+    $("m-tags").innerHTML = c.tags.map(tagHtml).join("");
+    $("m-sel").checked = selected.has(id);
+    const list = visible(), i = list.findIndex(x => x.id === id);
+    $("m-prev").disabled = i <= 0;
+    $("m-next").disabled = i < 0 || i >= list.length - 1;
+    $("modal").hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+  function syncModalFoot() {}
+  function closeModal() {
+    $("modal").hidden = true; $("player").innerHTML = ""; modalId = null;
+    document.body.style.overflow = "";
+  }
+  function stepModal(dir) {
+    const list = visible(), i = list.findIndex(x => x.id === modalId);
+    const next = list[i + dir];
+    if (next) openModal(next.id, modalMode === "clip" && job.downloads[String(next.id)]?.state === "done" ? "clip" : "vod");
+  }
+  $("m-prev").addEventListener("click", () => stepModal(-1));
+  $("m-next").addEventListener("click", () => stepModal(1));
+  $("m-sel").addEventListener("change", e => toggle(modalId, e.target.checked));
+
+  // ---------- events ----------
+  function paintSort() {
+    const btn = document.querySelector(`#sort-seg [data-sort="${sortKey}"]`) || document.querySelector("#sort-seg [data-sort]");
+    setSeg($("sort-seg"), btn);
+    const n = cands.length ? Math.max(...cands.map(c => c.id)) : "N";
+    $("sort-dir").textContent = sortAsc ? `1→${n}` : `${n}→1`;
+    $("sort-round").firstChild.textContent = isRounds() ? "Round " : "Order ";
+  }
+  function setSeg(seg, btn) {
+    const btns = [...seg.children];
+    btns.forEach(b => b.classList.toggle("on", b === btn));
+    seg.style.setProperty("--i", btns.indexOf(btn));
+  }
+  function toggleSettings(force) {
+    const s = $("settings"), open = force ?? !s.classList.contains("open");
+    s.classList.toggle("open", open);
+    $("set-head").setAttribute("aria-expanded", open);
+    $("set-toggle").textContent = open ? "Done" : "Edit";
+    try { localStorage.setItem("rc_settings_open", open ? "1" : "0"); } catch (_) {}
+  }
+
+  document.addEventListener("click", e => {
+    if (e.target.closest("[data-close]")) return closeModal();
+    const t = e.target.closest("button, a, input, [role=button]") || e.target;
+    if (t.id === "set-toggle" || t.id === "set-head") { e.preventDefault(); return toggleSettings(); }
+    if (t.dataset.filter) { filter = t.dataset.filter; return build(); }
+    if (t.dataset.f) { activeFilters.has(t.dataset.f) ? activeFilters.delete(t.dataset.f) : activeFilters.add(t.dataset.f); return build(); }
+    if (t.dataset.fclear !== undefined) { e.preventDefault(); activeFilters.clear(); return build(); }
+    if (t.dataset.pick) return pick(t.dataset.pick);
+    if (t.dataset.lead !== undefined && t.classList.contains("chip")) { $("lead").value = t.dataset.lead; return onLen(); }
+    if (t.dataset.step) { const el = $(t.dataset.step); el.value = Math.max(0, (+el.value || 0) + +t.dataset.d); return onLen(); }
+    if (t.dataset.q) { setSeg($("q-seg"), t); $("quality").value = t.dataset.q; return summary(); }
+    if (t.dataset.sort) {
+      if (t.dataset.sort === "round" && sortKey === "round") sortAsc = !sortAsc;
+      else if (t.dataset.sort === "round") sortAsc = true;
+      sortKey = t.dataset.sort;
+      paintSort();
+      try { localStorage.setItem("rc_sort", JSON.stringify({ k: sortKey, a: sortAsc })); } catch (e) {}
+      return build();
+    }
+    if (t.dataset.preview) return openModal(+t.dataset.preview, "vod");
+    if (t.dataset.play) return openModal(+t.dataset.play, "clip");
+    if (t.dataset.one) return download([+t.dataset.one]);
+    if (t.dataset.save) {
+      const d = job.downloads[t.dataset.save];
+      if (d && d.state === "done") saveLink(`/clips/${jobId}/${encodeURIComponent(d.file)}?dl=1`, d.file);
+      return;
+    }
+    if (t.dataset.feed) { e.preventDefault(); const id = +t.dataset.feed; feedOpen.has(id) ? feedOpen.delete(id) : feedOpen.add(id); return build(); }
+    const card = e.target.closest(".round");
+    if (card && !e.target.closest("a, button, input, .feed")) toggle(+card.dataset.id);
+  });
+  document.addEventListener("change", e => {
+    if (e.target.dataset.box) toggle(+e.target.dataset.box, e.target.checked);
+    if (e.target.id === "parallel") summary();
+  });
+  document.addEventListener("keydown", e => {
+    const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+    if (!$("modal").hidden) {
+      if (e.key === "Escape") closeModal();
+      else if (e.key === "ArrowLeft") stepModal(-1);
+      else if (e.key === "ArrowRight") stepModal(1);
+      else if (e.key.toLowerCase() === "s" && !typing) toggle(modalId);
+      return;
+    }
+    if (e.key === "/" && !typing && !$("picker").hidden) { e.preventDefault(); $("q").focus(); }
+    if (e.key === "Escape" && document.activeElement === $("q")) { $("q").value = ""; query = ""; $("q").blur(); build(); }
+    if ((e.key === "Enter" || e.key === " ") && document.activeElement === $("set-head")) { e.preventDefault(); toggleSettings(); }
+  });
+  $("q").addEventListener("input", () => { query = $("q").value.trim().toLowerCase(); build(); });
+
+  function onLen() {
+    cands.forEach(c => { const el = document.querySelector(`[data-len="${c.id}"]`); if (el) el.textContent = `${dur(clipLen(c))} clip`; });
+    summary();
+    try { localStorage.setItem("hf_lead", $("lead").value); localStorage.setItem("hf_tail", $("tail").value); } catch (_) {}
+  }
+  $("lead").addEventListener("input", onLen);
+  $("tail").addEventListener("input", onLen);
+
+  $("zipsel").addEventListener("click", zipSelected);
+  $("go").addEventListener("click", () => download(cands.filter(c => selected.has(c.id)).map(c => c.id)));
+  $("zip").addEventListener("click", e => { e.preventDefault(); saveFile("zip", `/api/job/${jobId}/zip`, `recaply_${jobId}.zip`); });
+  async function copyLines(list) {
+    const lines = list.sort((a, b) => a.start - b.start).map(c => `${hms(c.start)}  ${c.label}  ${c.info}  ${c.link}`);
+    try { await navigator.clipboard.writeText(lines.join("\n")); toast(`Copied ${lines.length} timestamp${lines.length === 1 ? "" : "s"}`); }
+    catch (_) { window.open(`/api/job/${jobId}/timestamps.txt?all=1`); }
+  }
+  $("copy-ts").addEventListener("click", e => {
+    e.preventDefault();
+    const sel = cands.filter(c => selected.has(c.id));
+    if (!sel.length) return toast("Select some rounds first");
+    copyLines(sel);
+  });
+  $("m-copy").addEventListener("click", e => { e.preventDefault(); copyLines([...cands]); });
+
+  // ---------- analysis progress ----------
+  const STEPS = [
+    ["Reading video info", /Starting|info/i],
+    ["Fetching the video", /Fetching 360p|Downloading/i],
+    ["Scanning gameplay", /Scanning|Measuring|Reading the audio/i],
+    ["Finding the best rounds", /Finding|Done/i],
+  ];
+  let stepIdx = 0, tStart = null;
+  function renderSteps(stage) {
+    STEPS.forEach(([, re], i) => { if (re.test(stage || "") && i > stepIdx) stepIdx = i; });
+    $("steps").innerHTML = STEPS.map(([name], i) =>
+      `<li class="${i < stepIdx ? "done" : i === stepIdx ? "active" : ""}"><i></i>${name}</li>`).join("");
+  }
+  function renderEta(p) {
+    if (p > 0.03 && tStart === null) tStart = { t: Date.now(), p };
+    if (!tStart || p <= tStart.p + 0.02) { $("eta").textContent = ""; return; }
+    const left = (Date.now() - tStart.t) / (p - tStart.p) * (1 - p) / 1000;
+    $("eta").textContent = left < 60 ? "Less than a minute left" : `About ${Math.round(left / 60)} min left`;
+  }
+
+  // ---------- live streams ----------
+  const LIVE_ACTIVE = ["connecting", "catching_up", "live"];
+  function renderLive(data) {
+    const ls = data.live_state;
+    $("live").hidden = !ls;
+    if (!ls) return;
+    const active = LIVE_ACTIVE.includes(ls), edge = data.live_edge || 0, head = data.live_head || edge;
+    $("live-pill").className = "pill " + (active ? "live" : ls === "error" ? "error" : "ready");
+    $("live-pill").textContent = active ? "Live" : ls === "ended" ? "Stream ended" : ls === "stopped" ? "Stopped" : "Interrupted";
+    $("live-text").innerHTML =
+      ls === "connecting" ? "Connecting to the stream…"
+      : ls === "catching_up" ? `Catching up · scanned <b>${hms(edge)}</b> of ${hms(head)}`
+      : ls === "live" ? (data.live_round ? `<b>Round in progress.</b> It shows up here once it ends.`
+                                        : `Following the broadcast · up to <b>${hms(edge)}</b>`)
+      : ls === "ended" ? "Every round is listed."
+      : ls === "stopped" ? `Stopped at <b>${hms(edge)}</b>. Resume to pick up new rounds.`
+      : esc(data.live_error || "Lost the stream.") + " Resume to try again.";
+    $("live-prog").hidden = ls !== "catching_up";
+    if (ls === "catching_up") $("live-fill").style.width = Math.round(100 * edge / Math.max(1, head)) + "%";
+    const act = active ? "stop" : ls === "ended" ? "" : "resume";
+    $("live-act").hidden = !act;
+    $("live-act").dataset.action = act;
+    $("live-act").textContent = act === "stop" ? "Stop following" : "Resume";
+  }
+  $("live-act").addEventListener("click", async e => {
+    const btn = e.currentTarget, action = btn.dataset.action;
+    btn.disabled = true;
+    try {
+      await fetch(`/api/job/${jobId}/live`, { method: "POST", headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ action }) });
+      toast(action === "stop" ? "Stopping after the current check…" : "Following the stream again");
+    } finally { btn.disabled = false; poll(); }
+  });
+
+  let timer = null;
+  async function poll() {
+    clearTimeout(timer);
+    let data;
+    try { data = await (await fetch(`/api/job/${jobId}/status`)).json(); }
+    catch (_) { timer = setTimeout(poll, 3000); return; }
+    job = data;
+    if (data.now) clockOffset = data.now - Date.now() / 1000;
+    $("title").textContent = data.title || "Analyzing…";
+    document.title = (data.title || "Recap") + " — Recaply";
+    const following = LIVE_ACTIVE.includes(data.live_state);
+    $("eyebrow").textContent = data.mode === "spikes" ? "Loudness recap" : data.live ? "Live round recap" : "Round recap";
+    $("badge").textContent = following ? "live" : data.state;
+    $("badge").className = "pill " + (following ? "live" : data.state);
+    const len = data.live ? (data.live_head || data.duration) : data.duration;
+    if (len) { $("m-len").hidden = false; $("m-len").textContent = data.live ? `${hms(len)} streamed` : `${hms(len)} VOD`; }
+    if (data.url) { $("m-src").hidden = false; $("m-src").href = data.video_url || data.url;
+      $("m-src").lastChild.textContent = data.live ? "Open stream" : "Open VOD"; }
+    $("log").textContent = data.log.join("\n");
+    $("log").scrollTop = 1e9;
+
+    const p = data.progress || 0;
+    $("pct").textContent = Math.round(100 * p) + "%";
+    $("progress").style.width = Math.round(100 * p) + "%";
+    $("stage").textContent = data.stage || "";
+    renderSteps(data.stage);
+    if (data.state === "analyzing") renderEta(p);
+    $("work").hidden = data.state !== "analyzing";
+    $("err").hidden = data.state !== "error";
+    if (data.state === "error") { $("err-msg").textContent = data.error || "Unknown error"; $("log-box").open = true; }
+
+    if (data.state === "ready") {
+      $("picker").hidden = false;
+      $("m-copy").hidden = !data.candidates.length;
+      renderLive(data);
+      const ns = data.names_state;
+      $("names").hidden = ns !== "running";
+      if (ns === "running") {
+        const np = Math.round(100 * (data.names_progress || 0));
+        $("names-text").textContent = `Reading player names for ACE / 4K / clutch badges · ${np}%`;
+        $("names-bar").style.width = np + "%";
+      }
+      if (built && (data.names_version || 0) !== namesVersion) {
+        namesVersion = data.names_version || 0;
+        cands = data.candidates;
+        if (!touched) selected = new Set(cands.filter(c => c.selected).map(c => c.id));
+        build();
+      }
+      if (!built) {
+        namesVersion = data.names_version || 0;
+        cands = data.candidates;
+        selected = new Set(cands.filter(c => c.selected).map(c => c.id));
+        let lead = data.default_lead, tail = data.default_tail;
+        try {
+          if (data.mode === "rounds" && localStorage.getItem("hf_lead") !== null) lead = localStorage.getItem("hf_lead");
+          if (data.mode === "rounds" && localStorage.getItem("hf_tail") !== null) tail = localStorage.getItem("hf_tail");
+          if (localStorage.getItem("rc_settings_open") === "1") toggleSettings(true);
+        } catch (_) {}
+        $("lead").value = lead; $("tail").value = tail;
+        // pick up downloads that were already running when the page opened
+        Object.entries(data.downloads || {}).forEach(([id, d]) => {
+          if (["queued", "downloading", "converting"].includes(d.state)) batch.add(+id);
+        });
+        built = true;
+        paintSort();
+        build();
+      }
+      refreshStatus();
+    }
+    const busy = data.state === "analyzing" || data.names_state === "running" ||
+      Object.values(data.downloads || {}).some(d => ["queued", "downloading", "converting"].includes(d.state));
+    // A live stream only changes every few seconds: poll it gently.
+    timer = setTimeout(poll, document.hidden ? (busy || following ? 5000 : 30000) : busy ? 1500 : following ? 4000 : 6000);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+  renderSteps("Starting");
+  poll();
+</script>
+</body>
+</html>

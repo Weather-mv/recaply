@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Download Recaply</title>
+<meta name="description" content="Download Recaply for Windows: find every round, ACE and clutch in a Valorant VOD and make captioned reels on your own PC.">
+{% include "_theme.html" %}
+<link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
+<style>
+  .dl-meta { color: var(--muted); font-size: 15px; margin-top: 16px; }
+  .req { max-width: 760px; margin: 0 auto; background: var(--surface); border-radius: 24px; box-shadow: var(--shadow); padding: 30px 32px; }
+  .req h2 { font-size: 26px; margin: 0 0 18px; }
+  .req dl { display: grid; grid-template-columns: 180px 1fr; gap: 12px 20px; margin: 0; font-size: 16px; }
+  .req dt { color: var(--muted); font-weight: 600; }
+  .req dd { margin: 0; }
+  @media (max-width: 680px) { .req dl { grid-template-columns: 1fr; gap: 2px; } .req dd { margin-bottom: 12px; } }
+</style>
+</head>
+<body class="site">
+{% include "_site_nav.html" %}
+<main>
+  <section class="hero" style="padding-bottom:24px !important"><div class="wrap-site">
+    <span class="eyebrow-pill rise"><b>Windows</b>Version {{ version }}</span>
+    <h1 class="rise d1" style="font-size:clamp(40px,6vw,68px)">Recaply for <span class="hl">Windows</span></h1>
+    <p class="sub rise d2">Everything runs on your PC: downloads, round detection, reels and exports. No uploads, no storage limits, no queue.</p>
+    <div class="hero-cta rise d3">
+      {% if installer %}
+      <a class="btn lg" href="{{ installer }}" download>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Download Recaply</a>
+      {% else %}
+      <span class="btn lg" aria-disabled="true" style="opacity:.6;pointer-events:none">The installer is on its way</span>
+      {% endif %}
+      {% if not user %}<a class="btn lg ghost" href="/signup">Create your account</a>{% endif %}
+    </div>
+    {% if installer %}<p class="dl-meta rise d4">Recaply-Setup-{{ version }}.exe{% if size_mb %} · {{ size_mb }} MB{% endif %} · Windows 10 and 11, 64-bit</p>{% endif %}
+  </div></section>
+
+  <section class="tight"><div class="wrap-site">
+    <div class="steps3">
+      <div class="step reveal"><div class="n">1</div><h3>Install</h3><p>Run the installer. Windows may ask you to confirm because the app is new; choose "More info", then "Run anyway".</p></div>
+      <div class="step reveal"><div class="n">2</div><h3>Log in</h3><p>Open Recaply and log in{% if not user %}, or create your account right in the app{% endif %}. Your 5-day free trial starts with your account.</p></div>
+      <div class="step reveal"><div class="n">3</div><h3>Paste a VOD</h3><p>Paste a YouTube or Twitch link. Recaply finds every round, tags the ACEs and clutches, and makes the reels.</p></div>
+    </div>
+  </div></section>
+
+  <section id="requirements" class="tight"><div class="wrap-site">
+    <div class="req reveal">
+      <h2>System requirements</h2>
+      <dl>
+        <dt>Windows</dt><dd>Windows 10 or 11, 64-bit</dd>
+        <dt>Memory</dt><dd>8 GB RAM (16 GB for AI captions with the best model)</dd>
+        <dt>Disk</dt><dd>About 1.5 GB for the app, plus room for your clips (roughly 40 MB per 1080p round)</dd>
+        <dt>Graphics</dt><dd>Optional: an NVIDIA card makes reels and exports several times faster</dd>
+        <dt>Internet</dt><dd>Needed to read VODs and to check your plan</dd>
+      </dl>
+    </div>
+  </div></section>
+</main>
+{% include "_site_footer.html" %}
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pricing · Recaply</title>
+<meta name="description" content="Recaply plans: a 5-day free trial, Starter at $9/month and Pro at $19/month.">
+{% include "_theme.html" %}
+<link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
+</head>
+<body class="site">
+{% include "_site_nav.html" %}
+<main>
+  <section class="hero" style="padding-bottom:24px !important"><div class="wrap-site">
+    <span class="eyebrow-pill rise"><b>Pricing</b>Cancel any time</span>
+    <h1 class="rise d1" style="font-size:clamp(40px,6vw,68px)">Pick the plan that <span class="hl">fits your channel</span></h1>
+    <p class="sub rise d2">Every account starts with a 5-day free trial. Upgrade for more clips, no watermark and faster processing.</p>
+    {% if ent %}<p class="rise d3" style="color:var(--muted)">You're on <b style="color:var(--text)">{{ ent.name }}</b>{% if ent.limit is not none %} · {{ ent.left }} of {{ ent.limit }} clips left{% endif %}.</p>{% endif %}
+  </div></section>
+  <section style="padding-top:24px"><div class="wrap-site">
+    {% if billing == 'local' %}<p class="bill-note" style="margin-top:0">This server runs on your computer without a payment provider, so changing plans is instant and nothing is charged.</p>
+    {% elif billing == 'off' %}<p class="bill-note" style="margin-top:0">Payments aren't set up on this server yet.</p>{% endif %}
+    {% include "_pricing_cards.html" %}
+  </div></section>
+  <section id="faq" class="tight"><div class="wrap-site">
+    <div class="faq">
+      <details><summary>What counts as a clip?</summary><p>One round downloaded from a recap, or one editor project exported. Each is counted once; reels made from clips you already have are free.</p></details>
+      <details><summary>What happens when I run out?</summary><p>You can still open, watch and download everything you've made. New downloads and exports wait until next month or until you upgrade.</p></details>
+      <details><summary>Can I switch plans later?</summary><p>Yes, up or down at any time from your account page.</p></details>
+    </div>
+  </div></section>
+</main>
+{% include "_site_footer.html" %}
+</body>
+</html>

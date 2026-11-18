@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ 'Log in' if mode == 'login' else 'Create your account' }} · Recaply</title>
+<meta name="robots" content="noindex">
+{% include "_theme.html" %}
+<link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
+</head>
+<body>
+{% include "_flash.html" %}
+<div class="auth">
+  <aside class="auth-side">
+    <a class="brand" href="/">{% include "_logo.html" %}Recaply</a>
+    <div>
+      {% if mode == 'login' %}
+        <h2>Welcome back. Your highlights are waiting.</h2>
+        <p>Pick up where you left off: recaps, reels and editor projects are {{ 'right here on your PC' if desktop else 'all in your account' }}.</p>
+      {% else %}
+        <h2>Start finding highlights in minutes.</h2>
+        <p>Your 5-day free trial includes everything:</p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Round detection with ACE and clutch tags</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>5 clips, POV reels and AI captions</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>No card needed</li>
+        </ul>
+      {% endif %}
+    </div>
+    <span style="color:rgb(255 255 255 / .7);font-size:14px">© Recaply</span>
+  </aside>
+
+  <main class="auth-main">
+    {% include "_theme_toggle.html" %}
+    <div class="auth-box rise">
+      <a class="brand" href="/" style="margin-bottom:28px">{% include "_logo.html" %}Recaply</a>
+      {% if mode == 'login' %}
+        <h1>Log in</h1>
+        <p class="sub">Good to see you again.</p>
+        <form method="post" action="/login" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ next }}">
+          {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+          <div class="row"><label for="email">Email</label>
+            <input class="field" id="email" name="email" type="email" autocomplete="email" required value="{{ email }}" autofocus></div>
+          <div class="row"><label for="password">Password</label>
+            <div class="pw"><input class="field" id="password" name="password" type="password" autocomplete="current-password" required>
+              <button type="button" data-show>Show</button></div></div>
+          <button class="btn" type="submit">Log in</button>
+        </form>
+        <p class="alt-link">New to Recaply? <a href="/signup">Start your free trial</a></p>
+      {% else %}
+        <h1>Create your account</h1>
+        <p class="sub">5 days free. No card needed.</p>
+        <form method="post" action="/signup" novalidate>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="plan" value="{{ plan }}">
+          {% if plan %}<div class="plan-chosen">You picked <b>{{ plans[plan].name }}</b>: create your account, then confirm the plan.</div>{% endif %}
+          {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+          <div class="row"><label for="name">Name</label>
+            <input class="field" id="name" name="name" type="text" autocomplete="name" maxlength="60" value="{{ form.name }}" placeholder="What should we call you?"></div>
+          <div class="row"><label for="email">Email</label>
+            <input class="field" id="email" name="email" type="email" autocomplete="email" required value="{{ form.email }}"></div>
+          <div class="row"><label for="password">Password</label>
+            <div class="pw"><input class="field" id="password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+              <button type="button" data-show>Show</button></div>
+            <span class="hint">At least 8 characters.</span></div>
+          <div class="hp" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
+          <button class="btn" type="submit">Create account</button>
+        </form>
+        <p class="alt-link">Already have an account? <a href="/login">Log in</a></p>
+      {% endif %}
+    </div>
+  </main>
+</div>
+<script>
+  document.querySelectorAll("[data-show]").forEach(b => b.addEventListener("click", () => {
+    const i = b.parentElement.querySelector("input"), show = i.type === "password";
+    i.type = show ? "text" : "password"; b.textContent = show ? "Hide" : "Show";
+  }));
+</script>
+</body>
+</html>

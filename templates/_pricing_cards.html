@@ -1,0 +1,28 @@
+{# The three plans. Needs `plans`, `user`, `ent`; optional `pick` (a plan to highlight). #}
+{% set tick %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" stroke-width="2" opacity=".25"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>{% endset %}
+<div class="plans">
+  {% for key in ("free", "starter", "pro") %}{% set p = plans[key] %}
+  {% set current = ent and ent.plan == key %}
+  <article class="plan-card{{ ' pop' if key == 'starter' }}{{ ' current' if current and key != 'starter' }} reveal" id="plan-{{ key }}">
+    {% if current %}<span class="badge cur">Your plan</span>{% elif key == 'starter' %}<span class="badge">Most popular</span>{% endif %}
+    <h3>{{ p.name }}</h3>
+    <p class="blurb">{{ p.blurb }}</p>
+    <div class="price"><b>${{ p.price }}</b><span class="per">{{ '5-day trial' if key == 'free' else '/ month' }}</span></div>
+    <ul>{% for f in p.features %}<li>{{ tick }}<span>{{ f }}</span></li>{% endfor %}</ul>
+    {% if not user %}
+      {% if key == 'free' %}<a class="btn ghost" href="/signup">Start free trial</a>
+      {% else %}<a class="btn{{ '' if key == 'starter' else ' dark' }}" href="/signup?plan={{ key }}">Get {{ p.name }}</a>{% endif %}
+    {% elif current %}
+      <a class="btn ghost" href="/account">Manage plan</a>
+    {% elif key == 'free' %}
+      <span class="btn ghost" aria-disabled="true">Included with every account</span>
+    {% else %}
+      <form method="post" action="/billing/checkout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="plan" value="{{ key }}">
+        <button class="btn{{ '' if key == 'starter' else ' dark' }}" type="submit"{% if pick == key %} autofocus{% endif %}>
+          {{ 'Upgrade' if (ent.plan == 'free' or key == 'pro') else 'Switch' }} to {{ p.name }}</button>
+      </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>

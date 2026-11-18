@@ -1,0 +1,17 @@
+<footer class="sfoot"><div class="wrap-site">
+  <div class="sfoot-grid">
+    <div>
+      <a class="brand" href="/">{% include "_logo.html" %}Recaply</a>
+      <p>Valorant highlights on autopilot: every round found, every ACE and clutch tagged, reels and captions ready to post.</p>
+    </div>
+    <div><h4>Product</h4><ul>
+      <li><a href="/#features">Features</a></li><li><a href="/#how">How it works</a></li>
+      <li><a href="/pricing">Pricing</a></li><li><a href="/#faq">FAQ</a></li></ul></div>
+    <div><h4>Get the app</h4><ul>
+      <li><a href="/app">Web app</a></li><li><a href="/download">Download for Windows</a></li><li><a href="/download#requirements">System requirements</a></li></ul></div>
+    <div><h4>Account</h4><ul>
+      {% if user %}<li><a href="/account">Your account</a></li><li><a href="/pricing">Plans &amp; billing</a></li>
+      {% else %}<li><a href="/login">Log in</a></li><li><a href="/signup">Start free trial</a></li>{% endif %}</ul></div>
+  </div>
+  <div class="sfoot-bottom"><span>© Recaply</span><span>Not affiliated with Riot Games. Valorant is a trademark of Riot Games, Inc.</span></div>
+</div></footer>

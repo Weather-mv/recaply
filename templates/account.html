@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Account · Recaply</title>
+{% include "_theme.html" %}
+<link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
+</head>
+<body>
+<div class="glow"></div>
+{% set active = 'account' %}{% include "_nav.html" %}
+<main class="acct">
+  <h1 class="rise">Your account</h1>
+  <p class="sub rise d1">{{ user.email }}</p>
+
+  <div class="acct-grid">
+    <section class="panel-card rise d2" id="plan">
+      <div class="plan-sum">
+        <div>
+          <div class="label" style="margin-bottom:6px">Current plan</div>
+          <div class="big">{{ ent.name }}
+            {% if ent.admin %}<span class="chip-st ok">Admin · unlimited</span>
+            {% elif ent.plan == 'free' %}<span class="chip-st {{ 'warn' if not ent.can_create else '' }}">{{ ent.trial_days_left }} day{{ '' if ent.trial_days_left == 1 else 's' }} of trial left</span>
+            {% elif user.plan_status == 'canceled' %}<span class="chip-st warn">Cancelled · ends soon</span>
+            {% else %}<span class="chip-st ok">Active</span>{% endif %}
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          {% if ent.plan != 'pro' %}<a class="btn" href="/pricing">Upgrade</a>{% endif %}
+          {% if not ent.admin and (stripe_customer or (billing == 'local' and user.plan in ('starter', 'pro'))) %}
+          <form method="post" action="/billing/manage"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn ghost" type="submit">{{ 'Manage billing' if billing == 'stripe' else 'Cancel plan' }}</button></form>
+          {% endif %}
+        </div>
+      </div>
+      <div class="use-bar">
+        {% if ent.limit is none %}
+          <div class="top">Clips {{ 'this month' if ent.plan != 'free' else '' }}<span>{{ ent.used }} made · unlimited</span></div>
+          <div class="bar"><i style="width:100%"></i></div>
+        {% else %}
+          {% set pct = (100 * ent.used / ent.limit) if ent.limit else 100 %}
+          <div class="top">Clips {{ 'in your trial' if ent.plan == 'free' else 'this month' }}<span>{{ ent.used }} of {{ ent.limit }} used</span></div>
+          <div class="bar"><i class="{{ 'full' if pct >= 100 }}" style="width:{{ [pct, 100]|min }}%"></i></div>
+        {% endif %}
+      </div>
+      {% if not ent.can_create %}<div class="err" style="margin-top:16px">{{ ent.reason }}</div>{% endif %}
+      <div class="perks">
+        <span>{{ 'Watermark on reels & exports' if ent.watermark else 'No watermark' }}</span>
+        <span>{{ ent.parallel }} downloads at once</span>
+        <span>{{ ['Standard', 'Faster', 'Priority'][ent.priority] }} processing</span>
+        <span>AI captions</span>
+      </div>
+      {% if billing == 'local' %}<div class="demo-note">This server runs on your computer without a payment provider: plan changes are instant and free. Set STRIPE_SECRET_KEY to take real payments.</div>{% endif %}
+    </section>
+
+    <section class="panel-card rise d3" id="profile">
+      <h2>Profile</h2><p>How you appear in Recaply.</p>
+      <form method="post" action="/account/profile" class="form-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Name<input class="field" name="name" maxlength="60" value="{{ user.name }}"></label>
+        <label>Email<input class="field" value="{{ user.email }}" disabled></label>
+        <div><button class="btn ghost" type="submit">Save</button></div>
+      </form>
+    </section>
+
+    <section class="panel-card rise d4" id="security">
+      <h2>Password</h2><p>Changing it logs you out everywhere else.</p>
+      <form method="post" action="/account/password" class="form-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Current password<input class="field" type="password" name="current" autocomplete="current-password" required></label>
+        <label>New password<input class="field" type="password" name="new" autocomplete="new-password" minlength="8" required></label>
+        <label>Repeat new password<input class="field" type="password" name="confirm" autocomplete="new-password" minlength="8" required></label>
+        <div><button class="btn ghost" type="submit">Change password</button></div>
+      </form>
+    </section>
+
+    <section class="panel-card danger-zone rise d5" id="danger">
+      <h2>Delete account</h2><p>Deletes your account, recaps, clips, reels and editor projects. This can't be undone.</p>
+      <form method="post" action="/account/delete" class="form-row" onsubmit="return confirm('Delete your account and everything in it?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Confirm with your password<input class="field" type="password" name="password" autocomplete="current-password" required></label>
+        <div><button class="btn danger" type="submit">Delete account</button></div>
+      </form>
+    </section>
+  </div>
+</main>
+</body>
+</html>

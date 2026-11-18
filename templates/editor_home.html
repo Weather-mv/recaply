@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Editor — Recaply</title>
+{% include "_theme.html" %}
+<style>
+  .wrap { max-width: var(--page); margin: 0 auto; padding: 40px 24px 80px; }
+  .eyebrow { font-size: 14.5px; font-weight: 600; color: var(--accent-tx); margin-bottom: 8px; }
+  h1 { font-size: 40px; letter-spacing: -0.03em; line-height: 1.12; margin: 0; }
+  h2 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); font-size: 16px; margin: 12px 0 0; max-width: 640px; line-height: 1.55; }
+
+  .starts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 30px; align-items: start; }
+  .start { padding: 20px; display: grid; gap: 14px; min-width: 0; }
+  .start .hd { display: flex; align-items: center; gap: 12px; }
+  .start .ico { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--fill); flex: none; }
+  .start .ico svg { width: 18px; height: 18px; }
+  .start p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .field.sm { padding: 10px 13px; font-size: 15px; }
+  .lab { font-size: 13.5px; color: var(--muted); margin-bottom: 6px; display: block; }
+  .opt { display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; color: var(--muted); cursor: pointer; line-height: 1.45; }
+  .opt b { color: var(--text); font-weight: 500; }
+  .opt input { margin-top: 1px; }
+  .err { color: var(--glow-hi); font-size: 14.5px; min-height: 0; }
+  .err:empty { display: none; }
+
+  .drop { border: 1px dashed var(--line-2); border-radius: 16px; padding: 22px 14px; text-align: center; color: var(--muted); font-size: 15px;
+          cursor: pointer; transition: border-color .3s var(--ease), background .3s var(--ease); display: grid; gap: 4px; }
+  .drop b { color: var(--text); font-weight: 500; }
+  .drop:hover, .drop.over { border-color: rgb(var(--ink) / .4); background: var(--fill); }
+  .drop small { color: var(--faint); font-size: 13.5px; }
+  .bar { height: 4px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--grad); border-radius: 99px; transition: width .4s var(--ease); }
+
+  .cliplist { display: grid; gap: 6px; max-height: 300px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; scrollbar-width: thin; }
+  .cl { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px; border-radius: 12px;
+        background: none; border: 0; text-align: left; cursor: pointer; color: inherit; font: inherit; transition: background .3s var(--ease); }
+  .cl:hover { background: var(--fill); }
+  .cl img { width: 72px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 7px; background: #0d1016; display: block; }
+  .cl b { font-weight: 500; font-size: 15px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cl span { font-size: 13.5px; color: var(--faint); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cl .go { font-size: 13.5px; color: var(--muted); }
+  .none { color: var(--faint); font-size: 14.5px; padding: 8px 0; }
+
+  .projects { margin-top: 44px; }
+  .p-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .p-head span { color: var(--muted); font-size: 14.5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  .proj { display: grid; grid-template-rows: auto 1fr; overflow: hidden; min-width: 0; transition: box-shadow .35s var(--ease); }
+  .proj:hover { box-shadow: var(--shadow-hi); }
+  .proj .thumb { position: relative; aspect-ratio: 16 / 9; background: var(--on-ink); display: block; }
+  .proj .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .proj .thumb .st { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 12px; font-size: 14px;
+                     color: var(--muted); background: rgb(var(--bg-rgb) / .72); }
+  .proj .thumb .fmt { position: absolute; left: 8px; bottom: 8px; font-size: 13px; padding: 2px 8px; border-radius: 99px; background: rgba(0, 0, 0, .6); }
+  .proj .body { padding: 12px 14px 12px; display: grid; gap: 6px; min-width: 0; }
+  .proj .name { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .proj .meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13.5px; color: var(--faint); }
+  .proj .del { background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 13.5px; padding: 2px 0; }
+  .proj .del:hover { color: var(--text); }
+  .proj .fail { color: var(--glow-hi); }
+  .empty { padding: 36px 20px; text-align: center; color: var(--muted); font-size: 15px; }
+
+  @media (max-width: 1000px) { .starts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .start.link { grid-column: 1 / -1; } }
+  @media (max-width: 640px) {
+    .wrap { padding: 28px 16px 60px; }
+    h1 { font-size: 30px; }
+    .starts { grid-template-columns: minmax(0, 1fr); }
+    .nav-links { gap: 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+{% set active = 'editor' %}{% include "_nav.html" %}
+
+<div class="wrap">
+  <div class="eyebrow rise">Editor</div>
+  <h1 class="rise d1">Edit a video</h1>
+  <p class="lede rise d2">Vertical shorts or regular 16:9 videos. Trim, crop, add text, shapes and pictures, and make reaction shorts from a watch party stream: the streamer's cam on top, the gameplay below, found automatically.</p>
+
+  <div class="starts">
+    <form class="card start link rise d2" id="f-link" autocomplete="off">
+      <div class="hd"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div><h2>From a link</h2></div>
+      <p>A YouTube or Twitch video or live stream, like a watch party. Only the part you choose is downloaded.</p>
+      <input class="field sm" id="l-url" type="url" placeholder="https://www.youtube.com/watch?v=…" required>
+      <div class="row2">
+        <label><span class="lab">Start at</span><input class="field sm" id="l-start" placeholder="1:30:00" inputmode="numeric"></label>
+        <label><span class="lab">Length (up to {{ import_max // 60 }} min)</span><input class="field sm" id="l-len" value="1:00" inputmode="numeric"></label>
+      </div>
+      <label class="opt"><input type="checkbox" id="l-edge"><span><b>Latest part of a live stream</b> — takes the last “length” of what's been broadcast so far (ignores Start at).</span></label>
+      <label class="opt"><input type="checkbox" id="l-react" checked><span><b>Reaction layout</b> — find the streamer's cam and put it above the gameplay (you can adjust it).</span></label>
+      <div class="err" id="l-err"></div>
+      <button class="btn" type="submit" id="l-go">Import</button>
+    </form>
+
+    <div class="card start rise d3">
+      <div class="hd"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div><h2>Upload a video</h2></div>
+      <p>Any video file from your computer or phone.</p>
+      <label class="drop" id="drop"><b>Choose a file</b> or drop it here<small>MP4, MOV, MKV, WebM · up to {{ upload_mb // 1024 if upload_mb >= 1024 else upload_mb }}{{ " GB" if upload_mb >= 1024 else " MB" }}</small>
+        <input type="file" id="u-file" accept="video/*,.mkv,.ts,.flv" hidden></label>
+      <label class="opt"><input type="checkbox" id="u-react"><span><b>Reaction layout</b> — for a recorded watch party or reaction video.</span></label>
+      <div class="bar" id="u-bar" hidden><div></div></div>
+      <div class="err" id="u-err"></div>
+    </div>
+
+    <div class="card start rise d4">
+      <div class="hd"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></svg></div><h2>From a recap</h2></div>
+      <p>A clip you've downloaded from a recap.</p>
+      <div class="cliplist" id="clips"><div class="none">Loading…</div></div>
+      <div class="err" id="c-err"></div>
+    </div>
+  </div>
+
+  <section class="projects">
+    <div class="p-head"><h2>Projects</h2><span id="p-count"></span></div>
+    <div class="grid" id="projects"></div>
+  </section>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const mmss = t => { t = Math.max(0, Math.round(t || 0)); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+    return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`; };
+  const ago = ts => { const s = Date.now() / 1000 - ts; if (s < 60) return "just now"; if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)} h ago`; return `${Math.floor(s / 86400)} d ago`; };
+
+  async function create(body) {
+    const r = await fetch("/api/editor/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.id) throw new Error(j.error || "Couldn't start the project.");
+    location.href = `/editor/${j.id}`;
+  }
+
+  // From a link
+  $("l-edge").addEventListener("change", () => { $("l-start").disabled = $("l-edge").checked; });
+  $("f-link").addEventListener("submit", async e => {
+    e.preventDefault();
+    $("l-err").textContent = ""; $("l-go").disabled = true;
+    try {
+      await create({ kind: "link", url: $("l-url").value.trim(), start: $("l-start").value, length: $("l-len").value,
+                     from_end: $("l-edge").checked, reaction: $("l-react").checked });
+    } catch (err) { $("l-err").textContent = err.message; $("l-go").disabled = false; }
+  });
+
+  // Upload
+  function upload(file) {
+    if (!file) return;
+    $("u-err").textContent = "";
+    const fd = new FormData(); fd.append("file", file); fd.append("reaction", $("u-react").checked ? "1" : "0");
+    const xhr = new XMLHttpRequest();
+    $("u-bar").hidden = false;
+    xhr.upload.onprogress = e => { if (e.lengthComputable) $("u-bar").firstElementChild.style.width = `${e.loaded / e.total * 100}%`; };
+    xhr.onload = () => {
+      let j = {}; try { j = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status === 413) j.error = "That file is too big.";
+      if (xhr.status === 200 && j.id) location.href = `/editor/${j.id}`;
+      else { $("u-err").textContent = j.error || "Upload failed."; $("u-bar").hidden = true; }
+    };
+    xhr.onerror = () => { $("u-err").textContent = "Upload failed (connection lost)."; $("u-bar").hidden = true; };
+    xhr.open("POST", "/api/editor/upload"); xhr.send(fd);
+  }
+  $("u-file").addEventListener("change", e => upload(e.target.files[0]));
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => upload(e.dataTransfer.files[0]));
+
+  // From a recap
+  async function loadClips() {
+    const params = new URLSearchParams(location.search);
+    if (params.get("job") && params.get("clip")) {
+      try { await create({ kind: "clip", job: params.get("job"), cid: params.get("clip") }); return; }
+      catch (err) { $("c-err").textContent = err.message; }
+    }
+    const data = await fetch("/api/reels").then(r => r.json()).catch(() => ({ jobs: [] }));
+    const rows = data.jobs.flatMap(j => j.clips.map(c => ({ j, c })));
+    $("clips").innerHTML = rows.length ? rows.map(({ j, c }) =>
+      `<button class="cl" type="button" data-job="${j.id}" data-cid="${c.cid}">
+         <img loading="lazy" src="/api/job/${j.id}/frame/${c.cid}.jpg" alt="">
+         <div style="min-width:0"><b>${esc(c.label)} · ${mmss(c.duration)}</b><span>${esc(j.title)}</span></div>
+         <span class="go">Edit</span></button>`).join("")
+      : `<div class="none">No downloaded clips yet. Make a recap and download some clips first.</div>`;
+  }
+  $("clips").addEventListener("click", async e => {
+    const b = e.target.closest(".cl"); if (!b) return;
+    b.disabled = true; $("c-err").textContent = "";
+    try { await create({ kind: "clip", job: b.dataset.job, cid: b.dataset.cid }); }
+    catch (err) { $("c-err").textContent = err.message; b.disabled = false; }
+  });
+
+  // Projects
+  let timer = null;
+  async function loadProjects() {
+    const data = await fetch("/api/editor/projects").then(r => r.json()).catch(() => null);
+    if (!data) return;
+    const ps = data.projects;
+    $("p-count").textContent = ps.length ? `${ps.length} project${ps.length > 1 ? "s" : ""}` : "";
+    $("projects").innerHTML = ps.length ? ps.map(p => {
+      let st = "";
+      if (p.state === "importing") st = `<div class="st"><span><span class="spin"></span>${esc(p.stage || "Importing")}${p.progress != null ? ` ${Math.round(p.progress * 100)}%` : ""}</span></div>`;
+      else if (p.state === "failed") st = `<div class="st fail">${esc(p.error || "Import failed")}</div>`;
+      const exp = p.render && p.render.state;
+      const info = p.state === "ready" ? `${mmss(p.length)} · ${exp === "done" ? "exported" : exp === "rendering" || exp === "queued" ? "exporting…" : ago(p.updated)}` : "";
+      return `<div class="card proj">
+        <a class="thumb" href="/editor/${p.id}">${p.state === "ready" ? `<img loading="lazy" src="/editor/${p.id}/poster.jpg" alt="">` : ""}${st}
+          ${p.format ? `<span class="fmt">${esc(p.format)}</span>` : ""}</a>
+        <div class="body"><a class="name" href="/editor/${p.id}" title="${esc(p.name)}">${esc(p.name)}</a>
+          <div class="meta"><span>${info}</span><button class="del" data-id="${p.id}" type="button">Delete</button></div></div></div>`;
+    }).join("") : `<div class="card empty" style="grid-column:1/-1">No projects yet. Start one above.</div>`;
+    clearTimeout(timer);
+    if (ps.some(p => p.state === "importing" || ["queued", "rendering"].includes(p.render && p.render.state))) timer = setTimeout(loadProjects, 2000);
+  }
+  $("projects").addEventListener("click", async e => {
+    const b = e.target.closest(".del"); if (!b) return;
+    if (!confirm("Delete this project and its export?")) return;
+    const r = await fetch(`/api/editor/${b.dataset.id}`, { method: "DELETE" });
+    if (!r.ok) alert((await r.json().catch(() => ({}))).error || "Couldn't delete it.");
+    loadProjects();
+  });
+  loadClips(); loadProjects();
+</script>
+</body>
+</html>

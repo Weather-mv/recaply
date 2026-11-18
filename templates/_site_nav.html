@@ -1,0 +1,31 @@
+<header class="snav" id="snav"><div class="snav-in">
+  <a class="brand" href="/" aria-label="Recaply home">{% include "_logo.html" %}Recaply</a>
+  <nav class="snav-links" id="snav-links">
+    <a href="/#features">Features</a>
+    <a href="/#how">How it works</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/#faq">FAQ</a>
+  </nav>
+  <div class="snav-cta">
+    {% include "_theme_toggle.html" %}
+    {% if user %}
+      <a class="login" href="/account">Account</a>
+    {% else %}
+      <a class="login" href="/login">Log in</a>
+    {% endif %}
+    {% if user %}<a class="btn sm" href="/app">Open web app</a>{% else %}<a class="btn sm" href="/download">Download</a>{% endif %}
+    <button class="circle-btn burger" type="button" aria-label="Menu" aria-expanded="false" id="burger">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+</div></header>
+{% include "_flash.html" %}
+<script>
+  (() => {
+    const nav = document.getElementById("snav");
+    const onScroll = () => nav.classList.toggle("scrolled", scrollY > 8);
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+    document.getElementById("burger").addEventListener("click", e => {
+      const open = nav.classList.toggle("open"); e.currentTarget.setAttribute("aria-expanded", open); });
+    document.getElementById("snav-links").addEventListener("click", () => nav.classList.remove("open"));
+  })();
+</script>
