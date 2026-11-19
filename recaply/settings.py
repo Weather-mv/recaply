@@ -89,6 +89,13 @@ class Settings:
     ollama_url: str = field(default_factory=lambda: _str("OLLAMA_URL", "http://127.0.0.1:11434"))
     ollama_model: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_MODEL", "llama3.1"))
 
+    # signals (Phase 3)
+    motion_for_links: bool = field(default_factory=lambda: _flag("RECAPLY_MOTION_LINKS", True))   # read a small video stream for motion
+    chat_replay: bool = field(default_factory=lambda: _flag("RECAPLY_CHAT", True))                # fetch chat replay for VODs
+
+    # Phase 5
+    pexels_key: str = field(default_factory=lambda: _str("RECAPLY_PEXELS_KEY"), repr=False)    # B-roll videos (free key)
+
     # funnel
     # windows sent to transcription + LLM; 0 = per profile (24 for talk, 16 otherwise)
     shortlist_size: int = field(default_factory=lambda: _int("RECAPLY_SHORTLIST", 0))

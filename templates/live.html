@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Live · Recaply</title>
+{% include "_theme.html" %}
+<style>
+  .wrap { max-width: var(--page); margin: 0 auto; padding: 0 24px; }
+  .head { padding: 40px 0 8px; }
+  .head h1 { font-size: clamp(26px, 3.2vw, 38px); line-height: 1.15; margin: 10px 0; }
+  .head p { color: var(--muted); max-width: 62ch; line-height: 1.5; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; padding-top: 24px; }
+  .list { display: grid; gap: 14px; }
+  .ch { padding: 18px; display: grid; gap: 10px; }
+  .ch .top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ch .nm { font-family: var(--head); font-weight: 700; font-size: 18px; }
+  .pill { font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: var(--fill); color: var(--muted); }
+  .pill.recording { background: rgb(var(--hot-rgb) / .14); color: var(--hot); }
+  .pill.waiting { background: rgb(var(--accent-rgb) / .12); color: var(--accent); }
+  .ch .facts { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 14.5px; }
+  .ch .url { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+  .ch .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .clips a { display: inline-block; margin: 2px 10px 2px 0; font-weight: 600; font-size: 14.5px; }
+  .panel { padding: 20px; }
+  .panel h3 { font-size: 17px; margin: 0 0 12px; }
+  .panel .field { width: 100%; margin-bottom: 8px; }
+  .panel .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .panel .chk { display: flex; gap: 8px; align-items: center; font-size: 15px; margin: 6px 0; }
+  .panel .note { font-size: 14px; color: var(--muted); line-height: 1.45; margin: 8px 0 0; }
+  .feed { display: grid; gap: 6px; max-height: 420px; overflow: auto; }
+  .ev { font-size: 14.5px; line-height: 1.4; padding: 8px 10px; border-radius: 10px; background: var(--fill); }
+  .ev b { font-weight: 700; }
+  .ev small { display: block; color: var(--muted); }
+  .ev.clip_ready { background: rgb(var(--accent-rgb) / .12); }
+  .ev.error { background: rgb(var(--hot-rgb) / .12); }
+  .empty { color: var(--muted); padding: 18px 4px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+{% set active = 'live' %}{% include "_nav.html" %}
+{% include "_flash.html" %}
+<div class="wrap">
+  <div class="head">
+    <span class="kicker"><i></i>Live</span>
+    <h1>Clip streams while they happen</h1>
+    <p>Recaply records the stream into a rolling buffer on this PC, watches the sound and chat, and when a big moment hits it cuts the clip
+       (a little before, a little after) and ranks and titles it in the background. It stops by itself when the stream ends.</p>
+  </div>
+  <div class="layout">
+    <div>
+      <div class="list" id="channels"></div>
+      <div class="empty" id="none" hidden>No channels yet. Add one on the right.</div>
+      <div class="card panel" style="margin-top:14px"><h3>Moments and clips</h3><div class="feed" id="feed"></div></div>
+    </div>
+    <aside class="card panel">
+      <h3>Add a channel</h3>
+      <input class="field" id="f-name" placeholder="Short name (e.g. mychannel)" maxlength="40">
+      <input class="field" id="f-url" placeholder="Twitch / YouTube / Kick channel or live link">
+      <select class="field" id="f-profile"></select>
+      <div class="row2">
+        <input class="field" id="f-pre" type="number" min="5" max="120" value="30" title="Seconds before the moment">
+        <input class="field" id="f-post" type="number" min="5" max="60" value="15" title="Seconds after the moment">
+      </div>
+      <p class="note" style="margin-top:0">Seconds before / after the moment.</p>
+      <select class="field" id="f-sens" title="How easily a moment counts">
+        <option value="0.65">Fewer clips (only the biggest moments)</option>
+        <option value="0.5" selected>Balanced</option>
+        <option value="0.38">More clips</option>
+      </select>
+      <input class="field" id="f-discord" placeholder="Discord webhook URL (optional)">
+      <input class="field" id="f-webhook" placeholder="Other webhook URL (optional)">
+      <label class="chk"><input type="checkbox" id="f-shorts"> Also render the best clip as a finished short</label>
+      <label class="chk"><input type="checkbox" id="f-auto"> Watch automatically when Recaply starts</label>
+      <button class="btn" type="button" id="f-add" style="width:100%;margin-top:6px">Save and start watching</button>
+      <p class="note" id="f-note"></p>
+      <p class="note">The buffer keeps the last 45 minutes of the stream on disk (about 1-2 GB at 720p). Only watch streams you have the right to clip.</p>
+    </aside>
+  </div>
+</div>
+<footer>Recaply</footer>
+<script>
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const clock = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h + ":" + String(m).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };
+  const LABEL = { starting: "Starting", waiting: "Waiting for the stream", recording: "Recording", ended: "Stream ended", stopped: "Stopped", idle: "Not running", error: "Problem" };
+  async function call(url, method, body) {
+    const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || "Something went wrong."); return d;
+  }
+  function renderChannels(list) {
+    const box = $("channels"); box.textContent = ""; $("none").hidden = list.length > 0;
+    for (const c of list) {
+      const card = el("div", "card ch"), top = el("div", "top");
+      top.append(el("span", "nm", c.name), el("span", "pill " + c.state, LABEL[c.state] || c.state));
+      card.append(top, el("div", "url", c.url));
+      const f = el("div", "facts");
+      if (c.recording_sec) f.append(el("span", null, "Recorded " + clock(c.recording_sec)));
+      f.append(el("span", null, c.spikes + " moment" + (c.spikes === 1 ? "" : "s")), el("span", null, c.profile));
+      if (c.chat) f.append(el("span", null, c.chat.connected ? "Chat on (" + c.chat.messages + ")" : "Chat connecting"));
+      else if (c.state === "recording") f.append(el("span", null, "Audio only"));
+      card.append(f);
+      if (c.note) card.append(el("div", "facts", c.note));
+      const clips = el("div", "clips");
+      for (const k of c.clips) if (k.job) { const a = el("a", null, "Clip at " + k.clock); a.href = "/clipjob/" + k.job; clips.append(a); }
+      if (clips.children.length) card.append(clips);
+      const acts = el("div", "acts"), live = c.alive;
+      const b = el("button", "btn sm", live ? "Stop" : "Start");
+      b.onclick = async () => { try { await call("/api/live/channels/" + c.name + (live ? "/stop" : "/start"), "POST"); refresh(); } catch (e) { alert(e.message); } };
+      const d = el("button", "btn sm", "Remove");
+      d.onclick = async () => { if (confirm("Remove " + c.name + "?")) { await call("/api/live/channels/" + c.name, "DELETE"); refresh(); } };
+      acts.append(b, d); card.append(acts); box.append(card);
+    }
+  }
+  function renderEvents(evs) {
+    const feed = $("feed"); feed.textContent = "";
+    const shown = evs.filter(e => !["waiting", "recording"].includes(e.kind)).slice(-40).reverse();
+    if (!shown.length) feed.append(el("div", "empty", "Nothing yet."));
+    for (const e of shown) {
+      const d = el("div", "ev " + e.kind), t = new Date(e.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const head = el("b", null, e.title || e.kind);
+      d.append(head, el("small", null, t + (e.text ? " · " + e.text : "")));
+      if (e.job) { const a = el("a", null, " Open"); a.href = "/clipjob/" + e.job; head.after(a); }
+      feed.append(d);
+    }
+  }
+  async function refresh() {
+    try {
+      const s = await (await fetch("/api/live")).json();
+      renderChannels(s.channels || []); renderEvents(s.events || []);
+      const sel = $("f-profile");
+      if (!sel.options.length) for (const p of s.profiles) sel.append(new Option(p.label, p.key));
+      if (sel.value === "" ) sel.value = "gaming";
+    } catch (_) {}
+  }
+  $("f-add").onclick = async () => {
+    $("f-note").textContent = "";
+    try {
+      await call("/api/live/channels", "POST", {
+        name: $("f-name").value, url: $("f-url").value, profile: $("f-profile").value,
+        pre: +$("f-pre").value, post: +$("f-post").value, threshold: +$("f-sens").value,
+        discord: $("f-discord").value, webhook: $("f-webhook").value,
+        auto_shorts: $("f-shorts").checked, enabled: $("f-auto").checked, start: true });
+      $("f-note").textContent = "Saved. Watching started."; refresh();
+    } catch (e) { $("f-note").textContent = e.message; }
+  };
+  refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

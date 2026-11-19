@@ -48,6 +48,10 @@ class Signal:
     def available(self, ctx: SignalContext) -> bool:
         return True
 
+    def cache_params(self, ctx: SignalContext) -> dict:
+        """Extra inputs the cached result depends on (e.g. which chat was read), part of the cache key."""
+        return {}
+
     def compute(self, ctx: SignalContext) -> np.ndarray:
         raise NotImplementedError
 

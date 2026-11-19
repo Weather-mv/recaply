@@ -135,6 +135,31 @@ def list_jobs(owner=None, limit: int = 50, everyone: bool = False) -> list[dict]
     return [dict(r) for r in rows]
 
 
+def usage_rows(owner=None, everyone: bool = False, since: float = 0.0, limit: int = 5000) -> list[dict]:
+    """Per job: id, created, state, title, summary and the source's duration (for the usage dashboard)."""
+    q = "select id, created, state, title, input, summary, result from clip_jobs where created>=?"
+    args: list = [since]
+    if not everyone:
+        q += " and owner is ?"
+        args.append(owner)
+    q += " order by created desc limit ?"
+    args.append(limit)
+    with _lock, _db() as con:
+        rows = con.execute(q, args).fetchall()
+    out = []
+    for r in rows:
+        d = {k: r[k] for k in ("id", "created", "state", "title", "input")}
+        try:
+            d["summary"] = json.loads(r["summary"]) if r["summary"] else {}
+            res = json.loads(r["result"]) if r["result"] else {}
+        except ValueError:
+            d["summary"], res = {}, {}
+        d["duration"] = float((res.get("source") or {}).get("duration") or 0)
+        d["clips"] = len(res.get("clips") or [])
+        out.append(d)
+    return out
+
+
 def unfinished() -> list[dict]:
     """Jobs to resume after a restart (queued or running when the app stopped)."""
     with _lock, _db() as con:

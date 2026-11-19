@@ -58,6 +58,10 @@
   .panel .note { font-size: 14.5px; color: var(--muted); margin: 8px 0 0; line-height: 1.45; }
   .panel .field { width: 100%; }
   .panel .btn { width: 100%; margin-top: 12px; }
+  .chk { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 15px; cursor: pointer; }
+  .copy { margin-top: 10px; }
+  .copy pre { white-space: pre-wrap; margin: 8px 0; font: inherit; font-size: 14.5px; color: var(--muted); }
+  .clip .media.tall video { aspect-ratio: 9 / 16; max-height: 420px; object-fit: contain; background: #000; }
   .legal { font-size: 14.5px; color: var(--muted); line-height: 1.5; margin: 0; }
   .empty { padding: 40px 24px; text-align: center; color: var(--muted); }
   .empty b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
@@ -105,6 +109,38 @@
         <button class="btn" type="button" id="cut">Cut selected</button>
         <p class="note">Each clip counts once against your plan. Only the clip's own seconds are downloaded.</p>
       </div>
+      <div class="card panel" id="shorts-panel">
+        <h3>Make shorts</h3>
+        <span class="label">Platform</span>
+        <select class="field" id="sh-export">{% for o in shorts.exports %}<option value="{{ o.key }}">{{ o.label }}</option>{% endfor %}</select>
+        <span class="label">Layout</span>
+        <select class="field" id="sh-layout">{% for o in shorts.layouts %}<option value="{{ o.key }}">{{ o.label }}</option>{% endfor %}</select>
+        <span class="label">Captions</span>
+        <select class="field" id="sh-captions">{% for o in shorts.captions %}<option value="{{ o.key }}"{% if o.key == 'bold' %} selected{% endif %}>{{ o.label }}</option>{% endfor %}</select>
+        <label class="chk"><input type="checkbox" id="sh-hook" checked> Hook text in the first 3 seconds</label>
+        <label class="chk"><input type="checkbox" id="sh-tighten"> Remove filler words and long pauses</label>
+        <label class="chk"><input type="checkbox" id="sh-emoji"> Emoji in captions</label>
+        <label class="chk"><input type="checkbox" id="sh-brand" checked> Use my brand kit</label>
+        <button class="btn" type="button" id="mk-shorts">Make shorts</button>
+        <p class="note">Counts once per clip, together with the cut. Opens in the editor afterwards for fine-tuning.</p>
+      </div>
+      <details class="card panel" id="brand-panel">
+        <summary><h3 style="display:inline">Brand kit</h3></summary>
+        <span class="label">Logo (PNG with transparency works best)</span>
+        <input class="field" type="file" id="br-logo" accept="image/*">
+        <span class="label">Accent colour (hook box)</span>
+        <input class="field" type="color" id="br-accent" value="#0865ff">
+        <span class="label">Logo corner</span>
+        <select class="field" id="br-pos"><option value="tr">Top right</option><option value="tl">Top left</option><option value="br">Bottom right</option><option value="bl">Bottom left</option></select>
+        <span class="label">Caption style</span>
+        <select class="field" id="br-cap"></select>
+        <span class="label">Intro clip (max 15 s)</span>
+        <input class="field" type="file" id="br-intro" accept="video/*">
+        <span class="label">Outro clip (max 15 s)</span>
+        <input class="field" type="file" id="br-outro" accept="video/*">
+        <button class="btn" type="button" id="br-save">Save brand kit</button>
+        <p class="note" id="br-note"></p>
+      </details>
       <div class="card panel" id="summary"></div>
       <div class="card panel"><p class="legal">Only clip videos you own or have permission to use, and follow each platform's rules when you post them.</p></div>
     </aside>
@@ -122,7 +158,7 @@
   const fmt = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
                      return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const SIG = { audio_energy: "loudness", chat_rate: "chat", motion: "motion" };
+  const SIG = { audio_energy: "loudness", chat_rate: "chat", motion: "motion", shout_laugh: "shouts & laughter" };
 
   function sourceLink(t) {
     const s = (JOB.result || {}).source || {};
@@ -141,14 +177,19 @@
     add("Length", fmt(r.source.duration || 0));
     add("Content", r.profile.label);
     add("Scored by", r.scorer.startsWith("llm:") ? "AI (" + r.scorer.slice(4) + ")" : r.scorer === "mixed" ? "AI + rules" : "rules (no AI key)");
+    const used = (r.signals_used || []).map(k => SIG[k] || k.replace("_", " "));
+    if (used.length) add("Signals", used.join(", ") + (r.chat_messages ? ` (${r.chat_messages.toLocaleString()} chat messages)` : ""));
+    if (r.profile.reason && r.profile.reason.includes("measured")) add("Detected", r.profile.reason.replace("auto: ", ""));
+    if (r.funnel && r.funnel.audio_sec && r.funnel.transcribed_sec) add("Transcribed", Math.round(100 * r.funnel.share) + "% of the audio");
     add("Clips", String(r.clips.length));
   }
 
   function renderStatus() {
     const busy = JOB.state === "queued" || JOB.state === "running";
-    const analyzing = busy && JOB.task !== "cut";
+    const rendering = JOB.task === "cut" || JOB.task === "shorts";
+    const analyzing = busy && !rendering;
     const failed = JOB.state === "failed";
-    $("status").hidden = !(analyzing || failed || (busy && JOB.task === "cut"));
+    $("status").hidden = !(analyzing || failed || (busy && rendering));
     $("status").classList.toggle("failed", failed);
     $("stage").textContent = failed ? "Something went wrong" : JOB.stage || "Working";
     $("pct").textContent = busy ? Math.round(100 * (JOB.progress || 0)) + "%" : "";
@@ -161,9 +202,14 @@
 
   function clipCard(c) {
     const cut = (JOB.cuts || {})[String(c.id)] || {};
+    const sh = (JOB.cuts || {})["s" + c.id] || {};
     const card = el("div", "card clip" + (selected.has(c.id) ? " sel" : ""));
     const media = el("div", "media");
-    if (cut.state === "done" && cut.file) {
+    if (sh.state === "done" && sh.file) {
+      const v = document.createElement("video");
+      v.src = `/clipjob/${JOB.id}/file/${encodeURIComponent(sh.file)}`; v.controls = true; v.preload = "metadata";
+      media.classList.add("tall"); media.append(v);
+    } else if (cut.state === "done" && cut.file) {
       const v = document.createElement("video");
       v.src = `/clipjob/${JOB.id}/file/${encodeURIComponent(cut.file)}`; v.controls = true; v.preload = "metadata";
       media.append(v);
@@ -198,6 +244,16 @@
       const d = el("details"); d.append(el("summary", null, "Transcript")); d.append(el("p", null, c.transcript)); body.append(d);
     }
     const acts = el("div", "acts");
+    if (sh.state === "done" && sh.file) {
+      const a = el("a", "btn sm", "Download short"); a.href = `/clipjob/${JOB.id}/file/${encodeURIComponent(sh.file)}?dl=1`; acts.append(a);
+      acts.append(el("span", "pill ready", `${sh.format || ""} · ${Math.round(sh.duration || 0)}s`));
+      if (sh.removed_sec) acts.append(el("span", "reason", `${sh.removed_sec}s of pauses and fillers removed`));
+      (sh.notes || []).forEach(n => acts.append(el("span", "reason", n)));
+    } else if (sh.state === "queued" || sh.state === "rendering") {
+      acts.append(el("span", "pill analyzing", sh.state === "queued" ? "Waiting" : (sh.stage || "Rendering")));
+    } else if (sh.state === "failed") {
+      acts.append(el("span", "pill error", "Short failed")); acts.append(el("span", "reason", sh.error || ""));
+    }
     if (cut.state === "done" && cut.file) {
       const a = el("a", "btn sm", "Download"); a.href = `/clipjob/${JOB.id}/file/${encodeURIComponent(cut.file)}?dl=1`; acts.append(a);
       acts.append(el("span", "pill ready", `${cut.size_mb || ""} MB · ${cut.quality || ""}p`.replace("bestp", "best")));
@@ -206,9 +262,24 @@
     } else if (cut.state === "failed") {
       acts.append(el("span", "pill error", "Failed")); acts.append(el("span", "reason", cut.error || ""));
     }
+    if (JOB.state !== "queued" && JOB.state !== "running") {
+      const ed = el("a", "btn sm", "Edit transcript"); ed.href = `/clipjob/${JOB.id}/edit/${c.id}`; ed.title = "Delete words to cut the video, add B-roll, translate captions, publish";
+      acts.append(ed);
+    }
     if (acts.childNodes.length) body.append(acts);
+    if (sh.state === "done") body.append(postCopy(c));
     card.append(media, body);
     return card;
+  }
+
+  function postCopy(c) {
+    const d = el("details", "copy"); d.append(el("summary", null, "Post copy (title, description, hashtags)"));
+    const text = [c.title, c.description, (c.hashtags || []).join(" ")].filter(Boolean).join("\n\n");
+    d.append(el("pre", null, text));
+    const b = el("button", "btn sm", "Copy"); b.type = "button";
+    b.addEventListener("click", async () => { try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch (_) {} });
+    d.append(b);
+    return d;
   }
 
   function renderList() {
@@ -232,6 +303,8 @@
     const busy = JOB.state === "queued" || JOB.state === "running";
     $("cut").disabled = !selected.size || busy;
     $("cut").textContent = busy && JOB.task === "cut" ? "Cutting…" : `Cut ${selected.size || ""} clip${selected.size === 1 ? "" : "s"}`;
+    $("mk-shorts").disabled = !selected.size || busy;
+    $("mk-shorts").textContent = busy && JOB.task === "shorts" ? "Rendering…" : `Make ${selected.size || ""} short${selected.size === 1 ? "" : "s"}`;
   }
 
   function renderSummary() {
@@ -258,6 +331,43 @@
     if (!r.ok && r.status !== 402) { const j = await r.json().catch(() => ({})); window.RecaplyFlash && RecaplyFlash(j.error || "Couldn't start cutting", "error"); }
     renderSel();
   });
+  $("mk-shorts").addEventListener("click", async () => {
+    $("mk-shorts").disabled = true;
+    const options = { export: $("sh-export").value, layout: $("sh-layout").value, captions: $("sh-captions").value,
+      hook: $("sh-hook").checked, tighten: $("sh-tighten").checked, emoji: $("sh-emoji").checked, use_brand: $("sh-brand").checked };
+    const r = await fetch(`/api/clipjob/${JOB.id}/shorts`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [...selected], options }) });
+    if (!r.ok && r.status !== 402) { const j = await r.json().catch(() => ({})); window.RecaplyFlash && RecaplyFlash(j.error || "Couldn't start rendering", "error"); }
+    renderSel();
+  });
+
+  // Brand kit
+  async function loadBrand() {
+    const r = await fetch("/api/brand"); if (!r.ok) return;
+    const b = await r.json(), k = b.kit;
+    $("br-accent").value = k.accent; $("br-pos").value = k.logo_pos;
+    const cap = $("br-cap"); cap.replaceChildren();
+    b.captions.forEach(o => { const op = document.createElement("option"); op.value = o.key; op.textContent = o.label; cap.append(op); });
+    cap.value = k.caption_style;
+    $("br-note").textContent = ["logo", "intro", "outro"].filter(x => k[x]).map(x => x + " saved").join(" · ");
+  }
+  $("br-save").addEventListener("click", async () => {
+    $("br-save").disabled = true;
+    try {
+      for (const which of ["logo", "intro", "outro"]) {
+        const f = $("br-" + which).files[0]; if (!f) continue;
+        const fd = new FormData(); fd.append("file", f);
+        const r = await fetch("/api/brand/" + which, { method: "POST", body: fd });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); window.RecaplyFlash && RecaplyFlash(j.error || "Couldn't save the " + which, "error"); }
+        $("br-" + which).value = "";
+      }
+      await fetch("/api/brand", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accent: $("br-accent").value, logo_pos: $("br-pos").value, caption_style: $("br-cap").value }) });
+      await loadBrand();
+    } finally { $("br-save").disabled = false; }
+  });
+  loadBrand();
+
   $("retry").addEventListener("click", async () => {
     $("retry").disabled = true;
     await fetch(`/api/clipjob/${JOB.id}/retry`, { method: "POST" });

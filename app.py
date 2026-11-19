@@ -44,6 +44,8 @@ from live import LiveStream, LiveFrameSource
 import reels
 import editor_routes
 import clip_routes
+import live_routes
+import studio_routes
 import storage
 import webutil
 from common import (JOB_ID, JOBS, JOBS_LOCK, ANALYSIS_SLOTS, RENDER_SLOTS, allowed_url, charge_failed,
@@ -65,6 +67,8 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024   # forms and JSON bodies are tiny
 # The editor's body limits run first (its uploads are big), then accounts and CSRF.
 app.register_blueprint(editor_routes.bp)
 app.register_blueprint(clip_routes.bp)      # the any-video clip finder
+app.register_blueprint(live_routes.bp)      # live-stream mode (Windows app)
+app.register_blueprint(studio_routes.bp)    # editing, publishing, batch queue, usage
 auth.init_app(app)
 
 SCAN_WORKERS = env_int("RECAPLY_SCAN_WORKERS", os.cpu_count() or 4)
@@ -1133,6 +1137,8 @@ if __name__ != "__mp_main__":
     load_saved_jobs()
     editor_routes.load_projects()
     clip_routes.resume_jobs()
+    live_routes.start_enabled()
+    studio_routes.start_publish_scheduler()
     if RETENTION_HOURS > 0:
         threading.Thread(target=cleanup_loop, daemon=True).start()
 

@@ -7,6 +7,9 @@ clip_routes.py — the "any video" clip finder's pages and API (a blueprint).
   GET  /api/clipjob/<id>            job as JSON
   GET  /api/clipjob/<id>/events     progress stream (Server-Sent Events)
   POST /api/clipjob/<id>/cut        cut the chosen clips (charged to the plan, once per clip)
+  POST /api/clipjob/<id>/shorts     render the chosen clips as finished shorts (same charge as a cut)
+  GET  /api/brand                   the account's brand kit (+ choices);  POST saves it
+  POST /api/brand/<logo|font|intro|outro>   upload a brand file;  DELETE removes it
   POST /api/clipjob/<id>/retry      run the analysis again (cached stages are reused)
   DELETE /api/clipjob/<id>          delete the job and its clips
   GET  /clipjob/<id>/file/<name>    a cut clip
@@ -22,16 +25,20 @@ import os
 import re
 import shutil
 import time
+from dataclasses import asdict
 
 from flask import Blueprint, Response, abort, flash, jsonify, redirect, render_template, request, send_from_directory
 
 from common import allowed_url
 from config import DESKTOP, env_int
 from recaply.ingest.sources import MEDIA_EXTS, looks_like_url
-from recaply.jobs import store
+from recaply.jobs import runner, store
 from recaply.jobs.queue import get_queue
 from recaply.jobs.runner import job_dir
 from recaply.profiles import all_profiles
+from recaply.render import brand as brandkit
+from recaply.render import presets, reframe, subtitles
+from recaply.render.shorts import ShortOptions
 
 if DESKTOP:
     import desktop_auth as auth
@@ -73,6 +80,16 @@ def _options(form) -> dict:
         lang = None
     return {"profile": profile, "count": count, "min_len": lo, "max_len": hi, "language": lang,
             "allow_local": bool(DESKTOP)}
+
+
+def short_choices() -> dict:
+    """Export presets, layouts and caption styles the UI offers for shorts."""
+    layouts = {"auto": "Auto", "face": "Follow the speaker", "split": "Cam on top, gameplay below",
+               "action": "Gameplay crop", "center": "Centre crop", "fit": "Whole frame, blurred sides"}
+    return {"exports": [{"key": k, "label": v["label"]} for k, v in presets.EXPORTS.items()],
+            "layouts": [{"key": k, "label": layouts.get(k, k)} for k in reframe.STRATEGIES],
+            "captions": [{"key": "none", "label": "No captions"}, {"key": "brand", "label": "Brand kit style"},
+                         *({"key": k, "label": v["label"]} for k, v in subtitles.PRESETS.items())]}
 
 
 def _owned(job_id: str) -> dict:
@@ -125,6 +142,16 @@ def clips_start():
     elif not (os.path.isfile(text) and text.lower().endswith(MEDIA_EXTS)):
         flash("That file wasn't found, or isn't a video.", "error")
         return redirect("/app")
+    if looks_like_url(text):
+        import live_routes
+        if live_routes.available() and live_routes.is_live_link(text):
+            try:
+                live_routes.watch_link(text, opts.get("profile") or "gaming")
+            except Exception as e:  # noqa: BLE001 — shown to the user as is
+                flash(f"Couldn't start live clipping: {e}", "error")
+                return redirect("/app")
+            flash("That's a live stream, so Recaply is watching it and will clip the big moments as they happen.", "ok")
+            return redirect("/live")
     jid = _start(text, opts, title=os.path.basename(text) if not looks_like_url(text) else "")
     return redirect(f"/clipjob/{jid}")
 
@@ -160,7 +187,7 @@ def clips_upload():
 def clipjob_page(job_id):
     job = _owned(job_id)
     return render_template("clipjob.html", job=view(job), job_json=json.dumps(view(job)),
-                           profiles=profile_choices())
+                           profiles=profile_choices(), shorts=short_choices())
 
 
 @bp.route("/api/clipjob/<job_id>")
@@ -222,6 +249,88 @@ def clipjob_cut(job_id):
     ent = auth.ent() or {}
     get_queue().submit(job_id, "cut", ent.get("priority", 0), refund=auth.refunder())
     return jsonify({"ok": True, "queued": len(ids)})
+
+
+@bp.route("/api/clipjob/<job_id>/shorts", methods=["POST"])
+def clipjob_shorts(job_id):
+    job = _owned(job_id)
+    if job["state"] in ("queued", "running"):
+        return jsonify({"error": "This job is still working. Try again when it's done."}), 409
+    body = request.get_json(force=True, silent=True) or {}
+    known = {c["id"] for c in ((job.get("result") or {}).get("clips") or [])}
+    try:
+        ids = [int(i) for i in body.get("ids", [])][:20]
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad request"}), 400
+    ids = [i for i in dict.fromkeys(ids) if i in known]
+    if not ids:
+        return jsonify({"error": "Pick at least one clip."}), 400
+    opts = asdict(ShortOptions.from_dict(body.get("options")))      # unknown values fall back to defaults
+    # a short is its clip, finished: it counts once against the plan, like the cut
+    ok, info = auth.charge([f"clip:{job_id}:{i}" for i in ids])
+    if not ok:
+        from common import charge_failed
+        return charge_failed(info)
+    ent = auth.ent() or {}
+    for i in ids:
+        store.set_cut(job_id, runner.short_key(i), {"state": "queued"})
+    store.update(job_id, task_args={"ids": ids, "options": opts, "watermark": bool(ent.get("watermark"))})
+    get_queue().submit(job_id, "shorts", ent.get("priority", 0), refund=auth.refunder())
+    return jsonify({"ok": True, "queued": len(ids), "watermark": bool(ent.get("watermark"))})
+
+
+@bp.route("/api/brand", methods=["GET", "POST"])
+def brand_api():
+    ent = auth.ent()
+    if not ent:
+        return jsonify({"error": "Log in to continue."}), 401
+    owner = auth.uid()
+    if request.method == "POST":
+        raw = request.get_json(force=True, silent=True) or {}
+        kit = brandkit.load(owner)
+        for k in ("logo_pos", "accent", "text_color", "highlight_color", "keyword_color", "caption_style", "font"):
+            if isinstance(raw.get(k), str):
+                setattr(kit, k, raw[k])
+        for k in ("logo_size", "logo_opacity"):
+            try:
+                if k in raw:
+                    setattr(kit, k, float(raw[k]))
+            except (TypeError, ValueError):
+                pass
+        brandkit.save(owner, kit)
+    return jsonify({"kit": asdict(brandkit.load(owner)), "fonts": brandkit.available_fonts(),
+                    "positions": brandkit.POSITIONS, "captions": short_choices()["captions"][2:]})
+
+
+@bp.route("/api/brand/<which>", methods=["POST", "DELETE"])
+def brand_file(which):
+    if which not in brandkit.MEDIA_FILES:
+        abort(404)
+    if not auth.ent():
+        return jsonify({"error": "Log in to continue."}), 401
+    owner = auth.uid()
+    if request.method == "DELETE":
+        brandkit.remove(owner, which)
+        return jsonify({"ok": True})
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "No file."}), 400
+    ext = os.path.splitext(f.filename)[1].lower()
+    allowed = {"logo": (".png", ".jpg", ".jpeg", ".webp"), "font": (".ttf", ".otf"),
+               "intro": (".mp4", ".mov", ".webm", ".mkv"), "outro": (".mp4", ".mov", ".webm", ".mkv")}[which]
+    if ext not in allowed:
+        return jsonify({"error": f"Upload a {' / '.join(allowed)} file."}), 400
+    tmp = os.path.join(brandkit.brand_dir(owner), f"_upload{ext}")
+    try:
+        f.save(tmp)
+        {"logo": brandkit.save_logo, "font": brandkit.save_font}.get(
+            which, lambda o, p: brandkit.save_clip(o, which, p))(owner, tmp)
+    except Exception as e:  # noqa: BLE001 — not an image / font / video, too long...
+        return jsonify({"error": str(e)[:200] or "That file couldn't be used."}), 400
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/clipjob/<job_id>/retry", methods=["POST"])

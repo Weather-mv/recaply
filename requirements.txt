@@ -23,3 +23,6 @@ faster-whisper>=1.2.1
 
 onnxruntime==1.30.0
 rapidocr==3.9.2
+
+# Live mode (optional, recommended): reads Twitch / YouTube live streams
+#   pip install streamlink

@@ -81,15 +81,23 @@ flowchart LR
 | Path | Stage |
 |------|-------|
 | `recaply/ingest/` | `sources.py` (links, files, cache keys), `audio.py` (audio-only fetch, parallel loudness) |
-| `recaply/signals/` | Signal plugins: one 0-1 score per second each (`audio_energy.py`) |
+| `recaply/signals/` | Signal plugins: one 0-1 score per second each: `audio_energy.py`, `shout_laugh.py` (on `audio_features.py`), `motion.py`, `chat_rate.py` |
+| `recaply/ingest/chat/` | Chat replay: `twitch.py`, `youtube.py`, `kick.py`, `files.py` (export parsers), cached per source |
 | `recaply/profiles/` | Content profiles, auto-detection, `valorant/` (round detector, kill-feed OCR, vocabulary) |
 | `recaply/providers/` | Transcription (`transcribe/`: faster-whisper, Groq, OpenAI) and LLMs (`llm.py`: Gemini, Anthropic, OpenAI, Ollama) |
 | `recaply/score/` | `fusion.py`, `windows.py` (shortlist), `rerank.py` (LLM + fallback), `boundaries.py` (clean cuts), `select.py` |
 | `recaply/render/cut.py` | Frame-accurate cuts from files or stream URLs, GPU first |
-| `recaply/engine.py` | `analyze()` and `cut_clips()`: the pipeline |
+| `recaply/render/` | Phase 2 shorts: `shorts.py` (one clip -> finished short), `reframe.py` (face / split / action / centre / fit), `subtitles.py` (caption presets, hook), `tighten.py` (fillers and pauses), `brand.py` (brand kit), `presets.py` (export presets) |
+| `recaply/live/` | Phase 4 live mode: `recorder.py`, `buffer.py`, `detect.py`, `chat.py`, `channel.py`, `manager.py`, `pipeline.py`, `notify.py`, `config.py`, `events.py` |
+| `recaply/edit/` | Phase 5 editing: `transcript.py` (delete words -> cuts), `translate.py` (LLM captions, SRT / VTT), `broll.py` (Pexels / Openverse cut-aways) |
+| `recaply/publish/` | Phase 5 publishing: `youtube.py` (Shorts, official API), `webhook.py`, `queue.py` (schedule + retries) |
+| `recaply/usage.py`, `recaply/batch.py` | Usage / cost numbers; batch start, retry, cancel |
+| `recaply/engine.py` | `analyze()`, `cut_clips()` and `render_shorts()`: the pipeline |
 | `recaply/jobs/` | SQLite job store, queues (threads in the app, or RQ/Redis), task runner |
 | `recaply/cli.py` | `python -m recaply clip <link-or-file>` |
 | `clip_routes.py`, `templates/clipjob.html` | The web pages and API (progress over Server-Sent Events) |
+| `live_routes.py`, `templates/live.html` | The Live page and API (Windows app only) |
+| `studio_routes.py`, `templates/edit.html`, `queue.html`, `usage.html` | Transcript editor, publishing, batch queue, usage dashboard |
 | `tests/` | Unit tests (fusion, boundaries, windows, selection, profiles, LLM handling) and an end-to-end test on `tests/fixtures/` |
 
 ### Command line
@@ -104,6 +112,186 @@ Options: `--profile` (auto, talk, gaming, fps, open_world, irl, valorant),
 `--count`, `--min`/`--max` seconds, `--transcriber`, `--llm`, `--cut`,
 `--quality 1080|720|best`, `--out DIR`, `--json FILE`. It prints the ranked
 clips and the per-stage timing and cost.
+
+### Shorts (Phase 2): finished vertical clips
+
+```bash
+.venv\Scripts\python -m recaply clip D:\videos\podcast.mp4 --profile talk --count 5 --shorts --tighten
+.venv\Scripts\python -m recaply clip "https://www.twitch.tv/videos/..." --shorts --export tiktok --captions karaoke --emoji
+```
+
+`--shorts` turns each chosen clip into a finished short: reframed, with
+animated captions and a hook, written next to the plain cut together with
+`posts.json` (title, description and hashtags per clip). In the web app the
+same options are in the **Make shorts** panel of a clip job, and every short
+opens in the editor for hand adjustments (`_edit/<id>-<ratio>/doc.json`).
+
+| Step | What it does |
+|------|--------------|
+| Reframe (`--layout`) | `face`: a virtual camera follows the main face (OpenCV YuNet, 2 fps, dead zone and eased moves). `split`: streamer cam on top, gameplay below. `action`: fixed crop on the busiest part of the picture. `center`, `fit` (whole frame over a blurred copy). `auto` takes the profile's preference and falls back to `fit` when no face or cam is found. |
+| Captions (`--captions`) | Word-by-word karaoke captions, nine presets (`bold`, `box`, `single`, `neon`, `clean`, `subtitle`, `karaoke`, `punch`, `marker`), numbers / profile keywords / the AI's emphasis words in a keyword colour, optional emoji (`--emoji`), placed above the bottom ~25% that TikTok, Shorts and Reels cover. |
+| Hook | The AI's 3-second on-screen text, in a box near the top (`--no-hook` to skip). |
+| Tighten (`--tighten`) | Cuts filler words (um, uh...) and shortens pauses over 0.6 s to 0.2 s, with tiny audio fades at each join; captions are re-timed. |
+| Export (`--export`) | `shorts`, `tiktok`, `reels` (9:16), `portrait` (4:5), `square` (1:1), `landscape` (16:9), `draft` (9:16, 720p). A note is added when the short is longer than the platform allows. |
+| Copy | In the same AI call that scores the clip: title, description and 3-5 hashtags. Without an AI key you get the clip's best line as title and generic tags. |
+| Brand kit | Per account: logo (corner, size, opacity), accent colour for the hook, caption style and colours, a font, an intro and an outro clip (max 15 s each). Set it in the **Brand kit** panel; `--no-brand` ignores it. |
+
+A short counts once against the plan together with the clip's cut.
+
+### Multi-signal scoring (Phase 3)
+
+Four cheap signals are measured over the whole video, in parallel, and fused
+with the profile's weights; only the shortlist is transcribed and sent to the AI.
+
+| Signal | How | Notes |
+|--------|-----|-------|
+| `audio_energy` | Loudness vs. the local baseline | |
+| `shout_laugh` | One 16 kHz decode: loudness, brightness (energy above 1.5 kHz), a 3.5-7.5 Hz envelope rhythm and its depth | Heuristic signal processing, not a trained model: a bright, loud yell scores high, a loud low rumble much lower, "ha ha ha" bursts score as laughter. Calibrated on synthetic audio and one speech clip; tell me which streams it misjudges. |
+| `motion` | ffmpeg's frame-difference score at 160 px; keyframes only when the video has one at least every 3.5 s (streams do), else 2 fps | Local files are read in place; for links the smallest stream up to 360p is read (`RECAPLY_MOTION_LINKS=0` turns that off). |
+| `chat_rate` | Messages and distinct chatters per second vs. baseline, plus hype share (emotes, caps, spam), shifted 6 s earlier for reaction time | Needs a chat replay, see below. |
+
+**Chat replay.** Fetched in the background while the audio downloads, cached
+per source: Twitch VODs (public web chat query, 8 time ranges in parallel),
+YouTube past live streams (yt-dlp `live_chat`), Kick VODs (best effort; Kick's
+bot filter can refuse). For a local file, pass an export:
+`--chat chat.json` (TwitchDownloader JSON, yt-dlp `live_chat`, or
+`[{"t": 12.5, "text": "LUL"}]`). No chat? The job says so in its notes and
+the chat weight is shared between the other signals. `RECAPLY_CHAT=0` switches
+it off.
+
+**Agreement.** Seconds where *independent* sources are high at once get a
+boost. Signals from the same source count once: loudness and shout/laughter
+both come from the microphone, so they don't boost each other; chat, audio and
+motion do. Dead air and the intro/outro are penalised.
+
+**Auto-detection.** Title, tags and game decide first. When they don't
+(no clear match), the first ten minutes are measured (share of speech, chat
+rate, picture motion, how large the biggest face is) and the reason is shown
+with the numbers. Choosing a profile yourself skips the measuring.
+
+**Measuring the funnel.**
+
+```bash
+.venv\Scripts\python -m recaply bench "https://www.twitch.tv/videos/..." --transcriber groq
+```
+
+Runs once from a cold cache and prints seconds per stage and per hour of video,
+how much of the audio was transcribed, and what that saved against
+transcribing everything. The funnel's saving grows with the video's length:
+with 16 shortlisted windows about 1,900 s of audio are transcribed whatever the
+length, so that is ~53% of a 1-hour video, ~18% of 3 hours and ~11% of 5 hours.
+Talk profiles transcribe everything on purpose.
+
+### Live mode (Phase 4)
+
+Clip streams while they happen. Recaply records the stream on your PC, listens
+to the sound and the chat, and when a big moment hits it cuts the clip and runs
+the normal clip pipeline on it in the background.
+
+```bash
+.venv\Scripts\python -m recaply live add mychannel https://www.twitch.tv/mychannel --discord <webhook url>
+.venv\Scripts\python -m recaply live run mychannel          # or: live run https://www.twitch.tv/somebody
+.venv\Scripts\python -m recaply live list | events [--follow] | remove mychannel
+```
+
+In the Windows app the same thing is the **Live** page: add channels, start and
+stop them, see moments and finished clips as they arrive.
+
+**How it works**
+1. `streamlink` (or yt-dlp, when streamlink isn't installed) reads the stream and
+   ffmpeg copies it into 5-minute `.ts` segments without re-encoding, so
+   recording costs almost no CPU. The newest 45 minutes stay on disk
+   (about 1-2 GB at 720p); older segments are deleted.
+2. Every 5 seconds the new audio is measured (loudness, shouts, laughter, the
+   same features as the VOD pipeline), together with live chat for Twitch
+   (anonymous read-only IRC) and YouTube. The `audio_energy`, `shout_laugh` and
+   `chat_rate` weights of the channel's profile are fused. Chat only counts once
+   it is actually flowing; Kick has no live chat yet, so it runs on audio alone.
+3. A burst of the fused score above the threshold is a **moment**, reported once
+   at its peak (about 10-20 s after it happens, because chat reacts late).
+   The clip is `pre` seconds before to `post` seconds after the peak
+   (30 / 15 by default), cut from the buffer once the "after" part has been recorded.
+4. The cut becomes an ordinary clip job (rank, title, hook; with `--shorts`
+   the best one is also rendered as a finished short). When it's done you get a
+   **clip ready** notification.
+5. When the stream has been gone for `end_grace` seconds (90 by default), the
+   channel stops by itself, cuts any moment still waiting and deletes its buffer
+   (`RECAPLY_LIVE_KEEP_BUFFER=1` keeps it).
+
+**Per-channel settings** (`live add --help`, or the page): profile, `--pre`,
+`--post`, `--threshold` (0.15-0.95, lower means more clips), `--cooldown`
+(60 s between clips), `--warmup` (120 s to learn the stream's normal level
+before the first clip), `--count`, `--shorts`, `--no-chat`, `--max-hours`,
+`--end-grace`, `--discord`, `--webhook`, `--auto-start` (watch when the app starts).
+They are saved in `<data dir>/_live.json`. Moments, captured clips and
+notifications appear in-app and in `live events`. A webhook gets a JSON POST
+for each finished clip, ended stream or error
+(`{"kind": "clip_ready", "channel", "title", "text", "job", "score", ...}`);
+Discord gets an embed that can't ping anyone. Set `RECAPLY_PUBLIC_URL`
+(for example `http://127.0.0.1:5000`) to include a link to the clip's page.
+
+**Checked.** The recorder, buffer, detector, cutting, notifications, auto-stop and
+the page's API are tested on a synthetic live feed (a quiet signal with one loud
+burst): the moment is caught, cut with the right length around it and the
+channel stops when the feed ends. Scoring costs about 0.2 s per 5-second tick on
+a 30-minute window. Not tested against real streams: streamlink / yt-dlp access
+to Twitch, YouTube and Kick, and the YouTube chat reader.
+
+### Editing, publishing, queue and usage (Phase 5)
+
+**Transcript editor.** Every clip card has **Edit transcript**. The clip's words
+are the timeline: click a word to delete it (shift-click for a range, "Select
+fillers" for um / uh), and the video and sound under it are cut out; kept words
+that were neighbours stay in one piece, so only the cuts are joined (with a
+12 ms audio fade). The red / blue bar shows what is removed; **Render edit**
+writes `edit_<n>.mp4` and the original and edited clip play side by side. A
+short made afterwards uses your edit and its words (so captions match).
+
+**B-roll.** Tick *Add B-roll* to lay up to three 3-second cut-aways over the clip
+while the speaker keeps talking. The spots and search words come from the AI
+(or, without one, the longest uncommon word of a sentence). Footage comes from
+Pexels (`RECAPLY_PEXELS_KEY`, free) or, with no key, public-domain pictures
+from Openverse (no attribution needed). Credits are listed on the page.
+Also available for shorts (`ShortOptions.broll`).
+
+**Translation.** *Translate captions to...* on the short (19 languages) sends
+the caption lines to your AI provider, one request per ~60 lines, and spreads
+each translated line over the time the original was spoken. Line timing is
+exact; the word-by-word highlight is approximate. SRT / VTT downloads
+(spoken language or translated) are on the same page.
+
+**Publishing.** From the editor page, pick the finished short (or the edit),
+a platform, title, description, tags, privacy and, optionally, a time. Items
+sit in a schedule (Queue page, or `publish list`) that the Windows app works
+through while it runs; network and server errors are retried after 1 and
+5 minutes, anything else is shown as failed with the platform's own message
+and can be retried by hand.
+- **YouTube Shorts** (official Data API, resumable upload): create a Google
+  OAuth client of type *Desktop app*, enable the YouTube Data API, set
+  `RECAPLY_YT_CLIENT_ID` / `RECAPLY_YT_CLIENT_SECRET`, run
+  `python -m recaply publish auth youtube`. The default API quota allows about
+  6 uploads a day, and videos uploaded by an API project that Google hasn't audited
+  are locked to private until it is.
+- **Webhook** (`RECAPLY_PUBLISH_WEBHOOK`): the video and its text are POSTed (multipart) to a URL you control, so
+  Zapier / Make / n8n or an Upload-Post style service can post to TikTok and
+  Instagram. There is no direct TikTok or Instagram integration yet.
+
+```bash
+.venv\Scripts\python -m recaply publish status
+.venv\Scripts\python -m recaply publish add <job id> short_00_9x16.mp4 --title "..." --at 2026-11-20T09:00
+.venv\Scripts\python -m recaply publish list        # run: uploads what is due, until Ctrl-C
+```
+
+**Batch queue.** The **Queue** page takes a list of links (one per line) with shared
+options, shows every job with progress, and offers cancel (before it starts),
+retry, retry all failed and delete. From the command line:
+`python -m recaply batch links.txt`.
+
+**Usage and cost.** The **Usage** page (or `python -m recaply usage`) totals, for
+the last 7-365 days, videos, hours of video, processing seconds per video hour,
+estimated spend (AI tokens and cloud transcription at list prices; local Whisper
+and Ollama are free), cost per video and per hour, the cost by provider, and
+where the time goes by stage. Editing and shorts add their own cost to the job.
 
 ### AI providers and keys
 
@@ -660,7 +848,26 @@ short with two video views renders in about 7 seconds on a GTX 1650 Ti). Project
 - Copyright/Content ID considerations apply to whatever you publish from the
   clips; this tool only handles the "find and cut" step. Only clip videos you
   own or have permission to use, and follow each platform's terms.
-- Clip finder (Phase 1): loudness is the only whole-video signal so far (chat
-  replay and motion come in Phase 3), auto-detection uses metadata only,
-  clips are cut 16:9 (9:16 reframing and captions come in Phase 2), and live
-  streams other than VCT aren't clipped yet (Phase 4).
+- Phase 5: Editing cuts at word boundaries (about 40 ms of padding), so a cut
+  inside a fast run of words can sound abrupt. Translated captions are timed per
+  line, not per word. B-roll is matched by a short search phrase, so it can be
+  off-topic: look at the preview, and re-render without it if it is. Open-licence
+  pictures from Openverse are public-domain only. Publishing works for YouTube
+  Shorts and a webhook; the schedule only runs while Recaply is running (a
+  missed time uploads at the next start). I could not run the YouTube
+  upload against Google's real servers here: it is tested against a local
+  stand-in for the API, so try one private upload first.
+- Live mode: only for streams streamlink / yt-dlp can read (Twitch and YouTube
+  live work with streamlink; Kick depends on its current protection). The
+  detector hears loudness, shouts, laughter and chat; it can't see the game, so a
+  quiet clutch won't trigger it, and a loud non-moment (music, an alert sound)
+  can. Tune with `--threshold`. Kick and other sites have no live chat. Moments
+  can't be cut from before the recorder started or older than the buffer.
+  The shout/laughter detector is a heuristic (see above). The Twitch chat
+  query and Kick's history endpoint are unofficial web endpoints that the
+  platforms can change or refuse; chat then drops out gracefully. Content
+  detection by measurement uses faces and motion only for local files, since
+  links would need a video download just to decide.
+- Shorts (Phase 2): face tracking follows one speaker (the biggest face);
+  scenes with several people talking in turn are not cut between speakers.
+  B-roll and caption translation are Phase 5. Direct publishing is Phase 5.

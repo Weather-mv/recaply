@@ -1,7 +1,11 @@
 # Recaply v3: discovery and refactor plan (Step 0)
 
 Status: approved with the default answers on 2026-11-18. **Phase 1 is built**
-(branch `phase-1-core-pipeline`); next is Phase 2 (Opus-style output).
+(branch `phase-1-core-pipeline`); **Phase 2 (Opus-style output) is built**
+(branch `phase-2-opus-output`); **Phase 3 (multi-signal scoring) is built** (branch `phase-3-multi-signal`);
+**Phase 4 (live-stream mode) is built** (branch `phase-4-live-mode`);
+**Phase 5 (editing and publishing) is built** (branch `phase-5-edit-publish`);
+the brief has no Phase 6: remaining work is hardening (see the Limitations in the README).
 Written 2026-11-18 from a full read of the repo.
 
 Decisions taken with the approval: processing stays on the user's PC

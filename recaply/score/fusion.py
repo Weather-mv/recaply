@@ -6,13 +6,19 @@ signals, weighted by the profile.
   re-normalised (no chat replay -> audio and motion count for more).
 - Seconds where several independent signals are high at once get a boost:
   agreement between, say, chat and audio is much stronger evidence than
-  either alone.
+  either alone. Signals measuring the same thing (loudness and shout /
+  laughter both come from the microphone) form one group and count once.
 - Dead air and the intro/outro of a video are penalised.
 """
 
 from __future__ import annotations
 
 import numpy as np
+
+# Signals that share a source count as one voice when checking agreement.
+# Unlisted signals (plugins) are their own group.
+GROUPS = {"audio_energy": "audio", "shout_laugh": "audio", "chat_rate": "chat", "motion": "video",
+          "transcript": "text", "valorant_rounds": "game", "valorant_killfeed": "game"}
 
 OVERLAP_LEVEL = 0.5          # a signal "fires" above this
 OVERLAP_BOOST = 0.25         # +25% per extra signal firing at the same time
@@ -52,11 +58,13 @@ def fuse(signals: dict[str, np.ndarray], weights: dict[str, float], n: int,
         v = v[:n] if len(v) >= n else np.concatenate([v, np.zeros(n - len(v), np.float32)])
         stack.append((weights[k] / total_w, np.clip(v, 0, 1)))
     fused = np.zeros(n, np.float32)
-    firing = np.zeros(n, np.int32)
-    for w, v in stack:
+    groups: dict[str, np.ndarray] = {}
+    for (w, v), name in zip(stack, used):
         fused += w * v
-        firing += (v >= OVERLAP_LEVEL).astype(np.int32)
-    if len(stack) > 1:
+        g = GROUPS.get(name, name)
+        groups[g] = np.maximum(groups.get(g, 0.0), v)
+    firing = sum((v >= OVERLAP_LEVEL).astype(np.int32) for v in groups.values())
+    if len(groups) > 1:
         fused *= 1.0 + OVERLAP_BOOST * np.maximum(firing - 1, 0)
     if dead is not None and len(dead):
         d = np.asarray(dead[:n], bool)

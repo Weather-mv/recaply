@@ -2,7 +2,8 @@
 Score the shortlist: the LLM reads each window's transcript (with absolute
 timestamps) plus what the signals saw, and returns a 0-100 virality score,
 the best self-contained start/end inside the window, a one-line reason, a
-title and a 3-second hook. Windows go in batches of 12, in parallel.
+title, a 3-second hook, a post description, hashtags and a few words worth
+emphasising in the captions. Windows go in batches of 12, in parallel.
 
 Without an LLM (no key, provider down, rate limited after retries) every
 window is scored by `heuristic()` from the signals and transcript instead,
@@ -11,6 +12,7 @@ so a job never fails because of the LLM; the job summary says which was used.
 
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from common import fmt_hms
@@ -24,13 +26,39 @@ from recaply.telemetry import Telemetry
 
 log = get_logger("rerank")
 BATCH = 12
+MAX_TAGS = 5
 
 SYSTEM = ("You are an expert short-form video editor. You pick the moments from long videos that will "
           "perform best as standalone YouTube Shorts / TikToks / Reels, and you judge them strictly and "
           "honestly. You answer with JSON only.")
 
-SIGNAL_NAMES = {"audio_energy": "loudness spike", "chat_rate": "chat spike", "motion": "fast motion",
+SIGNAL_NAMES = {"audio_energy": "loudness spike", "shout_laugh": "shouting or laughter", "chat_rate": "chat spike",
+                "motion": "fast motion",
                 "valorant_rounds": "round intensity"}
+
+
+def clean_tags(raw, extra: tuple[str, ...] = ()) -> list[str]:
+    """Hashtags as "#word" strings: letters/digits only, no repeats, at most MAX_TAGS. Accepts a list or a "#a #b" string."""
+    if isinstance(raw, str):
+        raw = raw.replace(",", " ").split()
+    out: list[str] = []
+    for t in list(raw or []) + list(extra):
+        tag = re.sub(r"[^0-9A-Za-z_]", "", str(t))[:30]
+        if tag and not tag.isdigit() and "#" + tag.lower() not in {x.lower() for x in out}:
+            out.append("#" + tag)
+    return out[:MAX_TAGS]
+
+
+def clean_words(raw, limit: int = 4) -> list[str]:
+    """Emphasis words: single words only, at most `limit`."""
+    if isinstance(raw, str):
+        raw = raw.replace(",", " ").split()
+    out = []
+    for w in raw or []:
+        w = re.sub(r"[^0-9A-Za-z'$%-]", "", str(w))
+        if w and w.lower() not in {x.lower() for x in out}:
+            out.append(w)
+    return out[:limit]
 
 
 def _transcript_block(w: Window) -> str:
@@ -84,6 +112,9 @@ def build_prompt(windows: list[tuple[int, Window]], profile: Profile, title: str
         '- "reason": why it works (or doesn\'t), concrete, max 20 words',
         '- "title": a catchy title, max 60 characters, no hashtags',
         '- "hook": on-screen text for the first 3 seconds, max 8 words',
+        '- "description": the post caption, 1-2 sentences (max 200 characters), no hashtags',
+        '- "hashtags": 3-5 relevant hashtags without the # sign (topic and niche, not just "shorts")',
+        '- "emphasis": up to 4 single words from the clip that deserve highlighting in the captions',
         "",
         'Reply as {"clips": [ ... ]}.',
     ]
@@ -146,7 +177,9 @@ def heuristic(w: Window, profile: Profile) -> dict:
     if w.text_score >= 0.4:
         reason += "; lively speech"
     return {"score": round(score, 1), "start": start, "end": end, "reason": reason,
-            "title": title or f"Moment at {fmt_hms(w.peak)}", "hook": ""}
+            "title": title or f"Moment at {fmt_hms(w.peak)}", "hook": "", "description": "",
+            "hashtags": clean_tags([], (profile.kind if profile.kind != "talk" else "podcast", "shorts")),
+            "emphasis": []}
 
 
 def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
@@ -196,6 +229,9 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
                     "reason": str(it.get("reason") or "")[:200],
                     "title": str(it.get("title") or "")[:80],
                     "hook": str(it.get("hook") or "")[:60],
+                    "description": " ".join(str(it.get("description") or "").split())[:300],
+                    "hashtags": clean_tags(it.get("hashtags"), ("shorts",)),
+                    "emphasis": clean_words(it.get("emphasis")),
                 }
         used = f"llm:{llm.provider}" if failed == 0 else ("heuristic" if failed == len(batches) else "mixed")
     for i, w in enumerate(windows):

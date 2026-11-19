@@ -5,6 +5,9 @@
     <a href="/app" class="{{ 'on' if active in ('home', 'recaps') }}" title="Your recaps">Recaps</a>
     <a href="/reels" class="{{ 'on' if active == 'reels' }}" title="Turn clips into 9:16 reels">Reels</a>
     <a href="/editor" class="{{ 'on' if active == 'editor' }}" title="Edit videos, captions and reaction shorts">Editor</a>
+    <a href="/queue" class="{{ 'on' if active == 'queue' }}" title="Batch queue and publishing schedule">Queue</a>
+    <a href="/usage" class="{{ 'on' if active == 'usage' }}" title="Time and cost">Usage</a>
+    {% if desktop or live_ok %}<a href="/live" class="{{ 'on' if active == 'live' }}" title="Clip streams while they happen">Live</a>{% endif %}
   </div>
   <div class="nav-right">
     {% if ent %}

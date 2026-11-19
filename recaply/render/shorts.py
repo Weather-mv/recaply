@@ -33,6 +33,8 @@ class ShortOptions:
     emoji: bool = False
     tighten: bool = False             # remove fillers and long pauses
     use_brand: bool = True
+    broll: bool = False               # lay stock cut-aways over the clip (Phase 5)
+    translate: str = ""               # translate the captions to this language code ("" = no)
 
     @classmethod
     def from_dict(cls, raw: dict | None) -> "ShortOptions":
@@ -45,15 +47,19 @@ class ShortOptions:
             o.layout = raw["layout"]
         if raw.get("captions") in (*subtitles.PRESETS, "none", "brand"):
             o.captions = raw["captions"]
-        for k in ("hook", "emoji", "tighten", "use_brand"):
+        for k in ("hook", "emoji", "tighten", "use_brand", "broll"):
             if k in raw:
                 setattr(o, k, bool(raw[k]))
+        from recaply.edit.translate import LANGUAGES
+        if raw.get("translate") in LANGUAGES:
+            o.translate = raw["translate"]
         return o
 
 
 def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: ShortOptions,
                  profile_reframe: str = "center", keywords: tuple[str, ...] = (), owner=None,
-                 watermark: bool = False, progress: Callable[[float, str], None] | None = None) -> dict:
+                 watermark: bool = False, progress: Callable[[float, str], None] | None = None,
+                 telemetry=None) -> dict:
     """
     Render one short from `src` (the cut clip) with clip-relative `words`.
     Returns {"file", "edit_dir", "layout", "reason", "removed_sec", "duration", "encoder", "sec", "notes"}.
@@ -94,6 +100,33 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
     report(0.1, "Finding faces and action")
     preferred = opts.layout if opts.layout != "auto" else profile_reframe
     plan = reframe.choose(source, meta, preferred, ratio(fmt))
+
+    # 2b. B-roll (on the tightened source, after the layout was chosen from the real picture)
+    broll_used: list = []
+    if opts.broll and words:
+        from recaply.edit import broll as broll_mod
+        from recaply.providers.llm import get_llm
+        report(0.12, "Finding B-roll")
+        try:
+            br = broll_mod.add(source, source + ".broll.mp4", words, meta["duration"], (meta["w"], meta["h"]),
+                               bool(meta["audio"]), os.path.join(edit_dir, "broll"), get_llm(), telemetry)
+            if br["file"]:
+                os.replace(br["file"], source)
+                broll_used = br["inserts"]
+            else:
+                notes.append(br["note"])
+        except Exception as e:  # noqa: BLE001 — the short is still made, without B-roll
+            notes.append(f"B-roll skipped: {str(e)[:120]}")
+
+    # 2c. caption translation (timing from the spoken words, text from the translation)
+    if opts.translate and words:
+        from recaply.edit import translate as tr
+        from recaply.providers.llm import get_llm
+        report(0.14, "Translating captions")
+        try:
+            words = tr.translate_words(words, opts.translate, get_llm(), telemetry)
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"captions not translated: {str(e)[:120]}")
 
     # 3. document
     layers = reframe.video_layers(plan, meta, W, H)
@@ -141,4 +174,4 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
     return {"file": name, "edit_dir": os.path.relpath(edit_dir, out_dir).replace("\\", "/"),
             "layout": plan.strategy, "reason": plan.reason, "removed_sec": removed, "duration": round(dur, 2),
             "encoder": enc, "sec": round(time.time() - t_start, 1), "notes": notes, "format": fmt,
-            "export": preset["key"]}
+            "export": preset["key"], "broll": broll_used}

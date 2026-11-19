@@ -48,11 +48,14 @@ def _send(req: urllib.request.Request, timeout: float, retries: int) -> bytes:
 
 
 def post_json(url: str, body: dict, headers: dict | None = None, timeout: float = 120,
-              retries: int = 3) -> dict:
+              retries: int = 3, parse: bool = True) -> dict:
+    """POST JSON. With parse=False the reply is ignored (webhooks often answer 204 with no body)."""
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST",
                                  headers={"Content-Type": "application/json", **(headers or {})})
     raw = _send(req, timeout, retries)
+    if not parse:
+        return {}
     try:
         return json.loads(raw)
     except ValueError as e:
@@ -78,3 +81,12 @@ def post_multipart(url: str, fields: dict, files: dict[str, tuple[str, bytes, st
         return json.loads(raw)
     except ValueError as e:
         raise ProviderError(f"bad JSON from provider: {raw[:200]!r}") from e
+
+
+def get_json(url: str, headers: dict | None = None, timeout: float = 30, retries: int = 2) -> dict | list:
+    req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json", **(headers or {})})
+    raw = _send(req, timeout, retries)
+    try:
+        return json.loads(raw)
+    except ValueError as e:
+        raise ProviderError(f"bad JSON from {url.split('?')[0]}: {raw[:120]!r}") from e
