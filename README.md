@@ -100,6 +100,31 @@ flowchart LR
 | `studio_routes.py`, `templates/edit.html`, `queue.html`, `usage.html` | Transcript editor, publishing, batch queue, usage dashboard |
 | `tests/` | Unit tests (fusion, boundaries, windows, selection, profiles, LLM handling) and an end-to-end test on `tests/fixtures/` |
 
+### Studio: the web UI (React)
+
+Recaply's front door is the **AI Studio** at `/studio` (`/app` redirects there; the classic Valorant round
+dashboard is still at `/app?classic=1`). It is a Vite + React + TypeScript app with Tailwind CSS and shadcn/ui
+components in `frontend/`, built into `static/studio/` (the built files are committed, so you only need Node
+to change the UI).
+
+| Screen | What it does |
+|---|---|
+| Dashboard `/studio` | One input bar ("Paste a link..." or drop a file), content type (auto-detect by default), recent projects, and a header status pill that says what the engine is doing ("Detecting content type...") plus whether the local AI (Ollama) is ready. |
+| Project `/studio/p/<id>` | Split screen. Left: the video player with a beat timeline. Right: the story beats from the AI (Hook, Setup, Tension, Payoff, Reaction, Tangent) and the ranked clips. Click a beat, a clip or the timeline to jump. |
+| Director `/studio/p/<id>/clip/<n>` | Transcript (click a word to seek, or "Cut words" to strike words out), a live 9:16 preview drawn from the video (reframe layouts, karaoke captions, hook, safe zone), and a Video / Audio / Text timeline with the waveform and your cuts. Export applies the cuts, then renders the short. |
+
+The preview plays the cut clip, else the source video (uploads and local files), else the audio the analysis used
+(links), so a link needs one "Cut this clip" before it can be watched. The preview for `face` and `split` layouts is
+an approximation: face tracking and the camera position are found on export.
+
+```powershell
+cd frontend
+npm install
+npm run dev         # http://localhost:5173, proxies the API to a running `python app.py` on :5000
+npm test            # unit tests for the reframe maths, word timing and status text
+npm run build       # writes ../static/studio (commit it)
+```
+
 ### Command line
 
 ```bash

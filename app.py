@@ -49,6 +49,7 @@ import editor_routes
 import clip_routes
 import live_routes
 import studio_routes
+import studio_app
 import storage
 import webutil
 from common import (JOB_ID, JOBS, JOBS_LOCK, ANALYSIS_SLOTS, RENDER_SLOTS, allowed_url, charge_failed,
@@ -72,6 +73,7 @@ app.register_blueprint(editor_routes.bp)
 app.register_blueprint(clip_routes.bp)      # the any-video clip finder
 app.register_blueprint(live_routes.bp)      # live-stream mode (Windows app)
 app.register_blueprint(studio_routes.bp)    # editing, publishing, batch queue, usage
+app.register_blueprint(studio_app.bp)       # the React AI Studio (static/studio) and its small API
 auth.init_app(app)
 
 SCAN_WORKERS = env_int("RECAPLY_SCAN_WORKERS", os.cpu_count() or 4)
@@ -775,7 +777,9 @@ def landing():
 
 @app.route("/app")
 def app_home():
-    """The dashboard: start a recap and see your recent ones."""
+    """The front door is the React AI Studio (/studio). The classic Valorant round dashboard stays at /app?classic=1."""
+    if request.args.get("classic") != "1":
+        return redirect("/studio")
     with JOBS_LOCK:
         recent = sorted(
             ({"id": k, "title": v.get("title") or v.get("url"), "state": v.get("state"),

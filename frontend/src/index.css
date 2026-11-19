@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn/ui tokens. Light theme here, dark under .dark (the default). Brand: electric blue #0865ff,
+   Plus Jakarta Sans, pill buttons, big radii. Beat colours are shared by the player, the timeline and the cards. */
+@layer base {
+  :root {
+    --background: 0 0% 97%;
+    --foreground: 240 10% 6%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 6%;
+    --primary: 218 100% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 93%;
+    --secondary-foreground: 240 10% 10%;
+    --muted: 240 6% 93%;
+    --muted-foreground: 240 4% 38%;
+    --accent: 240 6% 91%;
+    --accent-foreground: 240 10% 10%;
+    --destructive: 1 78% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 87%;
+    --input: 240 6% 85%;
+    --ring: 218 100% 52%;
+    --radius: 1rem;
+
+    --beat-hook: 218 100% 58%;
+    --beat-setup: 230 12% 52%;
+    --beat-build: 16 100% 58%;
+    --beat-payoff: 152 62% 42%;
+    --beat-reaction: 262 80% 64%;
+    --beat-tangent: 240 4% 62%;
+  }
+
+  .dark {
+    --background: 240 14% 3%;
+    --foreground: 0 0% 96%;
+    --card: 240 7% 8%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 7% 8%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 218 100% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 13%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 12%;
+    --muted-foreground: 240 5% 66%;
+    --accent: 240 6% 16%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 1 78% 58%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 16%;
+    --input: 240 6% 18%;
+    --ring: 218 100% 62%;
+
+    --beat-hook: 218 100% 64%;
+    --beat-setup: 230 12% 62%;
+    --beat-build: 16 100% 62%;
+    --beat-payoff: 152 62% 50%;
+    --beat-reaction: 262 80% 72%;
+    --beat-tangent: 240 4% 48%;
+  }
+
+  * { @apply border-border; }
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+  body { @apply bg-background text-foreground font-sans antialiased; font-size: 16px; }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
+  ::selection { background: hsl(var(--primary) / .35); }
+  /* thin themed scrollbars (the timeline and transcript scroll a lot) */
+  * { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / .35) transparent; }
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+  .glass { background: hsl(var(--background) / .72); backdrop-filter: blur(14px) saturate(1.4); }
+  .no-select { user-select: none; -webkit-user-select: none; }
+}

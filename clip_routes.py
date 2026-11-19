@@ -104,6 +104,15 @@ def _owned(job_id: str) -> dict:
     return job
 
 
+def _media_flags(job: dict) -> dict:
+    """Which previews exist (source video / analysis audio); the studio's player picks the best."""
+    try:
+        import studio_app
+        return studio_app.media_flags(job)
+    except Exception:  # noqa: BLE001 — a missing preview must never break the job view
+        return {"source": False, "audio": False}
+
+
 def view(job: dict) -> dict:
     """What the page needs (no local paths)."""
     result = dict(job.get("result") or {})
@@ -114,6 +123,7 @@ def view(job: dict) -> dict:
         "error": job.get("error"), "created": job["created"], "result": result or None,
         "cuts": job.get("cuts") or {}, "summary": job.get("summary") or {},
         "options": job.get("options") or {}, "version": job["version"],
+        "media": _media_flags(job),
     }
 
 
