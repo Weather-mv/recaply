@@ -261,3 +261,96 @@ def _local_path(result: dict) -> str:
     if not p:
         raise InputError("The source file for this job is gone.")
     return p
+
+
+# ---------- Phase 2: shorts ----------
+
+def clip_words(result: dict, clip: dict, telemetry: Telemetry | None = None) -> list[dict]:
+    """
+    The clip's words, clip-relative (0 = clip start). Comes from the
+    transcript block cache, so it's free when the analysis already
+    transcribed this part; otherwise only the clip's own blocks are
+    transcribed. [] when transcription is off or fails (no captions).
+    """
+    s = result["source"]
+    cache = StageCache(s["key"])
+    if s["kind"] == "file":
+        apath = result.get("source_path")
+    else:
+        found = [os.path.join(cache.dir, n) for n in os.listdir(cache.dir)
+                 if n.startswith("audio.") and not n.endswith((".part", ".ytdl", ".tmp"))]
+        apath = found[0] if found else None
+    if not apath or not os.path.exists(apath):
+        return []
+    try:
+        provider = get_transcriber((result.get("options") or {}).get("transcriber"))
+    except ValueError:
+        return []
+    if provider is None:
+        return []
+    from recaply.profiles import get_profile
+    try:
+        vocab = get_profile(result["profile"]["key"]).vocab
+    except KeyError:
+        vocab = ""
+    try:
+        words = transcribe_cached(provider, apath, cache, [(clip["start"], clip["end"])],
+                                  float(s.get("duration") or clip["end"]), vocab=vocab,
+                                  language=(result.get("options") or {}).get("language"), telemetry=telemetry)
+    except Exception as e:  # noqa: BLE001
+        log.warning("clip transcription failed", error=str(e)[:200])
+        return []
+    out = []
+    for w in words:
+        if clip["start"] - 0.05 <= w["s"] < clip["end"]:
+            out.append({**w, "s": round(max(0.0, w["s"] - clip["start"]), 3),
+                        "e": round(min(clip["end"], w["e"]) - clip["start"], 3)})
+    return out
+
+
+def render_shorts(result: dict, ids: list[int], out_dir: str, opts: dict | None = None, owner=None,
+                  watermark: bool = False, cut_files: dict | None = None,
+                  progress: Callable[[int, str, float], None] | None = None,
+                  telemetry: Telemetry | None = None) -> dict[int, dict]:
+    """
+    Render shorts for these clip ids into out_dir. Clips not cut yet are cut
+    first (1080p). `cut_files` maps clip id -> an existing cut file name in
+    out_dir. Returns {id: render info or {"error"}}.
+    """
+    from recaply.profiles import get_profile
+    from recaply.render.shorts import ShortOptions, render_short
+    tel = telemetry or Telemetry()
+    o = ShortOptions.from_dict(opts)
+    cut_files = dict(cut_files or {})
+    missing = [i for i in ids if not (cut_files.get(i) and os.path.exists(os.path.join(out_dir, cut_files[i])))]
+    if missing:
+        for cid, info in cut_clips(result, missing, out_dir, telemetry=tel).items():
+            if "file" in info:
+                cut_files[cid] = info["file"]
+    try:
+        profile = get_profile(result["profile"]["key"])
+        reframe_pref, keywords = profile.reframe, profile.keywords
+    except KeyError:
+        reframe_pref, keywords = "center", ()
+    by_id = {c["id"]: c for c in result["clips"]}
+    out: dict[int, dict] = {}
+    for cid in ids:                               # one at a time: each render already uses the GPU / all cores
+        c = by_id.get(cid)
+        if c is None:
+            continue
+        if not cut_files.get(cid):
+            out[cid] = {"error": "Cutting the clip failed."}
+            continue
+        try:
+            with tel.stage("words"):
+                words = clip_words(result, c, tel) if o.captions != "none" or o.tighten else []
+            with tel.stage("render"):
+                info = render_short(c, os.path.join(out_dir, cut_files[cid]), words, out_dir, o,
+                                    profile_reframe=reframe_pref, keywords=keywords, owner=owner,
+                                    watermark=watermark,
+                                    progress=(lambda f, s, cid=cid: progress(cid, s, f)) if progress else None)
+            out[cid] = {**info, "cut_file": cut_files[cid]}
+        except Exception as e:  # noqa: BLE001
+            log.error("short failed", clip=cid, error=str(e)[:300])
+            out[cid] = {"error": str(e)[:300]}
+    return out

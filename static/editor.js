@@ -317,7 +317,16 @@
       g.lineJoin = "round"; g.lineWidth = L.stroke_w * 2; g.strokeStyle = L.stroke;
       items.forEach(([w, x, base]) => g.strokeText(w, x, base));
     }
-    items.forEach(([w, x, base], q) => { g.fillStyle = q === j && L.hi_mode === "color" ? L.hi : L.color; g.fillText(w, x, base); });
+    items.forEach(([w, x, base], q) => {
+      const kw = chunk.words[q] && chunk.words[q].k;
+      g.fillStyle = q === j && L.hi_mode === "color" ? L.hi : kw ? (L.kw || L.hi) : L.color; g.fillText(w, x, base);
+    });
+    if (chunk.emoji) {               // same place as the export: centred above the caption block
+      g.font = `${Math.round(size * 1.1)}px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif`;
+      g.textAlign = "center"; g.textBaseline = "bottom";
+      g.fillText(chunk.emoji, cx, top - size * 0.25);
+      g.textAlign = "left"; g.textBaseline = "alphabetic";
+    }
     g.restore();
   }
   function drawVideoLayer(g, L) {

@@ -63,6 +63,9 @@ SS = 2                                  # supersampling for shapes and text
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 LAYER_ID = re.compile(r"^[A-Za-z0-9_-]{1,24}$")
 ASSET_NAME = re.compile(r"^[0-9a-f]{12}\.png$")
+FONT_NAME = re.compile(r"^[0-9a-f]{12}\.(ttf|otf)$")    # a custom font in the project's assets
+EMOJI_FONTS = ("C:/Windows/Fonts/seguiemj.ttf", "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+               "/System/Library/Fonts/Apple Color Emoji.ttc")
 SHAPES = ("rect", "ellipse", "line", "arrow")
 ALIGNS = ("left", "center", "right")
 LAYER_TYPES = ("video", "text", "shape", "image", "captions")
@@ -247,6 +250,8 @@ def _clean_chunks(raw):
                 continue
             s = max(0.0, min(36000.0, s))
             word = {"w": text, "s": round(s, 3), "e": round(min(36000.0, max(e, s + 0.02)), 3)}
+            if w.get("k"):
+                word["k"] = 1                   # keyword: drawn in the layer's keyword colour
             try:
                 word["p"] = round(min(1.0, max(0.0, float(w.get("p", 1)))), 3)
             except (TypeError, ValueError):
@@ -258,6 +263,9 @@ def _clean_chunks(raw):
         if total > 10000:
             break
         ch = {"words": words}
+        emo = c.get("emoji")
+        if isinstance(emo, str) and 0 < len(emo) <= 8 and not any(x.isalnum() or x in "<>&\"'" for x in emo):
+            ch["emoji"] = emo
         lines = c.get("lines")
         if (isinstance(lines, list) and 0 < len(lines) <= 10 and all(isinstance(n, int) and n > 0 for n in lines)
                 and sum(lines) == len(words)):
@@ -336,6 +344,7 @@ def clean_layer(raw, W, H, assets_dir, used_ids):
         L["hi"] = _color(raw, "hi", "#ffd21f")
         L["hi_bg"] = _color(raw, "hi_bg", "#f66f14")
         L["hi_mode"] = raw.get("hi_mode") if raw.get("hi_mode") in ("color", "box", "none") else "color"
+        L["kw"] = _color(raw, "kw", L["hi"])
         L["stroke"] = _color(raw, "stroke", "#000000")
         L["stroke_w"] = _num(raw, "stroke_w", 6, 0, 40)
         L["bg"] = _color(raw, "bg", "#000000")
@@ -346,7 +355,11 @@ def clean_layer(raw, W, H, assets_dir, used_ids):
         if isinstance(raw.get("preset"), str) and re.match(r"^[a-z]{1,12}$", raw["preset"]):
             L["preset"] = raw["preset"]
         L["chunks"] = _clean_chunks(raw.get("chunks"))
-    else:
+    if t in ("text", "captions"):
+        f = raw.get("font")
+        if isinstance(f, str) and FONT_NAME.match(f) and os.path.exists(os.path.join(assets_dir, f)):
+            L["font"] = f
+    if t in ("image",):
         name = raw.get("asset")
         if not (isinstance(name, str) and ASSET_NAME.match(name)
                 and os.path.exists(os.path.join(assets_dir, name))):
@@ -491,6 +504,28 @@ def _font(size):
     return _font_at(path, max(1, int(round(size))))
 
 
+def _lfont(L, size):
+    """The layer's own font (a custom font in the project's assets) or the default bold font."""
+    path = L.get("_font_path")
+    if path and os.path.exists(path):
+        return _font_at(path, max(1, int(round(size))))
+    return _font(size)
+
+
+def _emoji_font(size):
+    path = next((f for f in EMOJI_FONTS if os.path.exists(f)), None)
+    return _font_at(path, max(1, int(round(size)))) if path else None
+
+
+def bind_fonts(doc, assets_dir):
+    """A copy of the document whose layers know their custom font files (for drawing only)."""
+    doc = json.loads(json.dumps(doc))
+    for L in doc.get("layers", []):
+        if L.get("font"):
+            L["_font_path"] = os.path.join(assets_dir, L["font"])
+    return doc
+
+
 @functools.lru_cache(maxsize=256)
 def _font_at(path, size):
     # Loading a .ttf parses the whole file: do it once per size, not once per frame.
@@ -531,7 +566,7 @@ def text_lines(L):
     given = L.get("lines")
     if given is not None and squash("".join(given)) == squash(L["text"]):
         return given
-    font = _font(L["size"])
+    font = _lfont(L, L["size"])
     return wrap_text(L["text"], L["w"] - 2 * L["size"] * TEXT_PAD, font.getlength)
 
 
@@ -610,7 +645,7 @@ def _draw_caption(img, L, state, P, ss=SS):
     """One caption state (chunk i, word j, scale, opacity) into `img` via canvas->image mapping P."""
     i, j, sc, op = state
     size = L["size"]
-    font0 = _font(size)
+    font0 = _lfont(L, size)
     items, top, block = caption_layout(L, L["chunks"][i], font0.getlength)
     cx, cy = L["x"] + L["w"] / 2, top + block / 2
     S = lambda x, y: P(cx + (x - cx) * sc, cy + (y - cy) * sc)  # noqa: E731
@@ -627,7 +662,7 @@ def _draw_caption(img, L, state, P, ss=SS):
         a, b = S(x - size * 0.12, lt + size * 0.1), S(x + ww + size * 0.12, lt + size * 1.16)
         d.rounded_rectangle([a[0], a[1], b[0] - 1, b[1] - 1], radius=int(round(size * 0.18 * sc * ss)),
                             fill=_rgba(L["hi_bg"], 1))
-    font = _font(size * sc * ss)
+    font = _lfont(L, size * sc * ss)
     sw = int(round(L["stroke_w"] * sc * ss))
     stroke_mask = Image.new("L", img.size, 0) if sw > 0 else None
     masks = {}
@@ -635,13 +670,27 @@ def _draw_caption(img, L, state, P, ss=SS):
         xy = S(x, base)
         if stroke_mask is not None:
             ImageDraw.Draw(stroke_mask).text(xy, w, font=font, fill=255, anchor="ls", stroke_width=sw, stroke_fill=255)
-        col = L["hi"] if (k == j and L["hi_mode"] == "color") else L["color"]
+        kw = L["chunks"][i]["words"][k].get("k")
+        col = L["hi"] if (k == j and L["hi_mode"] == "color") else (L.get("kw", L["hi"]) if kw else L["color"])
         m = masks.setdefault(col, Image.new("L", img.size, 0))
         ImageDraw.Draw(m).text(xy, w, font=font, fill=255, anchor="ls")
     if stroke_mask is not None:
         _paint(img, stroke_mask, _rgba(L["stroke"], 1))
     for col, m in masks.items():
         _paint(img, m, _rgba(col, 1))
+    emo = L["chunks"][i].get("emoji")
+    ef = _emoji_font(109 * ss * sc) if emo else None    # colour emoji fonts are drawn at fixed sizes
+    if ef is not None:
+        tile = Image.new("RGBA", (int(140 * ss * sc) * max(1, len(emo)), int(140 * ss * sc)), (0, 0, 0, 0))
+        ImageDraw.Draw(tile).text((0, 0), emo, font=ef, embedded_color=True)
+        bb = tile.getbbox()
+        if bb:
+            tile = tile.crop(bb)
+            target = size * 1.1 * sc * ss
+            k = target / max(1, tile.height)
+            tile = tile.resize((max(1, int(tile.width * k)), max(1, int(tile.height * k))), Image.LANCZOS)
+            ex, ey = S(cx, top - size * 0.25)
+            img.alpha_composite(tile, (int(ex - tile.width / 2), max(0, int(ey - tile.height))))
     o = L["opacity"] * op
     if o < 0.999:
         img.putalpha(img.getchannel("A").point(lambda v: int(round(v * o))))
@@ -768,7 +817,7 @@ def _draw_text(img, L, P):
         box = [*P(L["x"], L["y"]), *P(L["x"] + L["w"], L["y"] + L["h"])]
         d.rounded_rectangle([box[0], box[1], box[2] - 1, box[3] - 1], radius=int(round(size * 0.2 * SS)),
                             fill=_rgba(L["bg"], L["bg_op"]))
-    font = _font(size * SS)
+    font = _lfont(L, size * SS)
     anchor = {"left": "ls", "center": "ms", "right": "rs"}[L["align"]]
     ax = {"left": L["x"] + pad, "center": L["x"] + L["w"] / 2, "right": L["x"] + L["w"] - pad}[L["align"]]
     sw = int(round(L["stroke_w"] * SS))
@@ -1264,6 +1313,7 @@ def render(src, dst, doc, meta, assets_dir, progress=None, watermark=False):
     try:
         heavy = any(L["type"] == "captions" or animated(L) for L in doc["layers"] if not L["hidden"])
         report(0.0, "Drawing captions and animations" if heavy else "Preparing")
+        doc = bind_fonts(doc, assets_dir)        # custom fonts: drawing only, never saved
         overlays = overlay_groups(doc, assets_dir, work) + _tracks(doc, assets_dir, work)
         report(0.0, "Encoding")
         watermark = watermark and reels.prepare_watermark(work)
