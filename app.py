@@ -38,8 +38,11 @@ from pipeline import (
     needs_prefetch, prefetch_inputs, resolve_hires, loudness_profile,
 )
 import accounts
-import killer_id
-import round_detector
+from recaply.profiles.plugins import lazy_module
+
+# Valorant's detectors load on first use: other profiles never import OpenCV / OCR.
+killer_id = lazy_module("recaply.profiles.valorant.killer_id")
+round_detector = lazy_module("recaply.profiles.valorant.round_detector")
 from live import LiveStream, LiveFrameSource
 import reels
 import editor_routes

@@ -4,8 +4,8 @@ LLM providers for clip scoring and copywriting, behind one interface:
     llm = get_llm()                       # from RECAPLY_LLM, or None
     data, usage = llm.complete_json(system, prompt)
 
-Gemini Flash (default; free tier), Claude Haiku, OpenAI mini models and
-Ollama (local, free). All are plain HTTPS calls with retries; keys are sent
+Ollama (default: local, free, private), Gemini Flash, Claude Haiku and
+OpenAI mini models. All are plain HTTPS calls with retries; keys are sent
 in headers only (never in URLs, so they can't end up in logs).
 """
 
@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
 from recaply.providers.http import ProviderError, post_json
@@ -47,6 +50,7 @@ def parse_json(text: str) -> dict:
 
 class LLM:
     provider = ""
+    supports_schema = False       # True when `complete_json(..., schema=...)` enforces a JSON schema
 
     def __init__(self, model: str):
         self.model = model
@@ -119,21 +123,56 @@ class OpenAI(LLM):
                                        u.get("completion_tokens", 0))
 
 
-class Ollama(LLM):
-    provider = "ollama"
+# One local model, one GPU: calls to Ollama take turns, so a 4 GB card never runs two at once.
+_OLLAMA_TURN = threading.Semaphore(1)
 
-    def __init__(self, base_url: str, model: str):
+
+class Ollama(LLM):
+    """A local model served by Ollama (http://localhost:11434): free, private, offline."""
+
+    provider = "ollama"
+    supports_schema = True
+
+    def __init__(self, base_url: str, model: str, num_ctx: int = 8192, keep_alive: str = "5m",
+                 timeout: float = 600):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
+        self.num_ctx = num_ctx
+        self.keep_alive = keep_alive
+        self.timeout = timeout
 
-    def complete_json(self, system, prompt, max_tokens=8000):
-        body = {"model": self.model, "stream": False, "format": "json",
-                "options": {"temperature": 0.3, "num_predict": max_tokens, "num_ctx": 32768},
+    def complete_json(self, system, prompt, max_tokens=8000, schema: dict | None = None):
+        body = {"model": self.model, "stream": False,
+                # a JSON schema makes small models return exactly the fields we ask for
+                "format": schema or "json", "keep_alive": self.keep_alive,
+                "options": {"temperature": 0.2, "num_predict": min(max_tokens, 4096), "num_ctx": self.num_ctx},
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
-        res = post_json(f"{self.base_url}/api/chat", body, timeout=600, retries=1)
+        with _OLLAMA_TURN:
+            res = post_json(f"{self.base_url}/api/chat", body, timeout=self.timeout, retries=1)
         text = (res.get("message") or {}).get("content") or ""
         return parse_json(text), Usage(self.provider, self.model, res.get("prompt_eval_count", 0),
                                        res.get("eval_count", 0))
+
+
+def ollama_status(base_url: str | None = None, model: str | None = None, timeout: float = 2.0) -> dict:
+    """
+    Is Ollama running and is the model downloaded? Never raises. Result:
+    {"running", "model", "model_ready", "models": [...], "hint": "what to do next" or ""}.
+    """
+    base = (base_url or settings.ollama_url).rstrip("/")
+    model = model or settings.ollama_model
+    try:
+        with urllib.request.urlopen(f"{base}/api/tags", timeout=timeout) as r:
+            tags = json.loads(r.read())
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return {"running": False, "model": model, "model_ready": False, "models": [],
+                "hint": "Ollama isn't running. Install it from ollama.com, start it, then run: "
+                        f"ollama pull {model}"}
+    names = [m.get("name", "") for m in tags.get("models") or []]
+    ready = any(n == model or n.split(":")[0] == model or (":" not in model and n.startswith(model + ":"))
+                for n in names)
+    return {"running": True, "model": model, "model_ready": ready, "models": names,
+            "hint": "" if ready else f"Download the model first: ollama pull {model}"}
 
 
 def get_llm(name: str | None = None) -> LLM | None:
@@ -147,5 +186,5 @@ def get_llm(name: str | None = None) -> LLM | None:
     if name == "openai" and s.openai_api_key:
         return OpenAI(s.openai_api_key, s.openai_model)
     if name == "ollama":
-        return Ollama(s.ollama_url, s.ollama_model)
+        return Ollama(s.ollama_url, s.ollama_model, s.ollama_ctx, s.ollama_keep_alive, s.ollama_timeout)
     return None

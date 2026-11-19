@@ -421,6 +421,32 @@ def cmd_publish(args) -> int:
     return 2
 
 
+def cmd_worker(args) -> int:
+    from recaply.jobs.queue import run_worker
+    try:
+        return run_worker(burst=args.burst)
+    except Exception as e:  # noqa: BLE001
+        print(f"Can't start the worker: {e}")
+        print("Needs: pip install rq redis, a running Redis, and REDIS_URL.")
+        return 2
+
+
+def cmd_status(args) -> int:
+    from recaply.jobs.queue import queue_info
+    from recaply.providers.llm import ollama_status
+    from recaply.settings import settings
+    st = ollama_status()
+    print(f"LLM provider : {settings.llm_provider}")
+    if settings.llm_provider == "ollama":
+        print(f"Ollama       : {'running' if st['running'] else 'NOT running'}"
+              f" | model {st['model']} {'ready' if st['model_ready'] else 'missing'}")
+        if st["hint"]:
+            print(f"               {st['hint']}")
+    q = queue_info()
+    print(f"Job queue    : {q['backend']} | {q['waiting']} waiting | {q['workers']} worker(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="recaply", description="Find, score and cut short clips from long videos.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -523,5 +549,10 @@ def main(argv: list[str] | None = None) -> int:
     pb.set_defaults(fn=cmd_publish)
     p = sub.add_parser("profiles", help="list content profiles")
     p.set_defaults(fn=cmd_profiles)
+    wk = sub.add_parser("worker", help="run a job worker for the Redis queue (RECAPLY_QUEUE=rq)")
+    wk.add_argument("--burst", action="store_true", help="stop when the queue is empty")
+    wk.set_defaults(fn=cmd_worker)
+    st = sub.add_parser("status", help="is the local AI (Ollama) and the job queue ready?")
+    st.set_defaults(fn=cmd_status)
     args = ap.parse_args(argv)
     return args.fn(args)

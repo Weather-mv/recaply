@@ -79,15 +79,24 @@ class Settings:
     openai_api_key: str = field(default_factory=lambda: _str("OPENAI_API_KEY"), repr=False)
     openai_whisper_model: str = field(default_factory=lambda: _str("RECAPLY_OPENAI_WHISPER_MODEL", "whisper-1"))
 
-    # LLM scoring and copy: gemini | anthropic | openai | ollama | none
-    llm_provider: str = field(default_factory=lambda: _str("RECAPLY_LLM", "gemini").lower())
+    # LLM scoring and copy: ollama (local, free; default) | gemini | anthropic | openai | none
+    llm_provider: str = field(default_factory=lambda: _str("RECAPLY_LLM", "ollama").lower())
     gemini_api_key: str = field(default_factory=lambda: _str("GEMINI_API_KEY") or _str("GOOGLE_API_KEY"), repr=False)
     gemini_model: str = field(default_factory=lambda: _str("RECAPLY_GEMINI_MODEL", "gemini-flash-latest"))
     anthropic_api_key: str = field(default_factory=lambda: _str("ANTHROPIC_API_KEY"), repr=False)
     anthropic_model: str = field(default_factory=lambda: _str("RECAPLY_ANTHROPIC_MODEL", "claude-haiku-5-5"))
     openai_model: str = field(default_factory=lambda: _str("RECAPLY_OPENAI_MODEL", "gpt-5-mini"))
     ollama_url: str = field(default_factory=lambda: _str("OLLAMA_URL", "http://127.0.0.1:11434"))
-    ollama_model: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_MODEL", "llama3.1"))
+    # a 3-4B model fits a 4 GB GPU next to Whisper; bigger machines can set llama3.1:8b, qwen2.5:7b...
+    ollama_model: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_MODEL", "qwen2.5:3b-instruct"))
+    ollama_ctx: int = field(default_factory=lambda: _int("RECAPLY_OLLAMA_CTX", 8192))
+    ollama_keep_alive: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_KEEP_ALIVE", "5m"))
+    ollama_timeout: int = field(default_factory=lambda: _int("RECAPLY_OLLAMA_TIMEOUT", 600))
+
+    # story beats: a second LLM pass labels each shortlisted moment hook/setup/build/payoff/...
+    story_beats: bool = field(default_factory=lambda: _flag("RECAPLY_BEATS", True))
+    beat_chunk_words: int = field(default_factory=lambda: _int("RECAPLY_BEAT_CHUNK_WORDS", 350))
+    beat_overlap_words: int = field(default_factory=lambda: _int("RECAPLY_BEAT_OVERLAP_WORDS", 50))
 
     # signals (Phase 3)
     motion_for_links: bool = field(default_factory=lambda: _flag("RECAPLY_MOTION_LINKS", True))   # read a small video stream for motion

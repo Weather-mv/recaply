@@ -26,6 +26,7 @@ from recaply.telemetry import Telemetry
 
 log = get_logger("rerank")
 BATCH = 12
+BATCH_LOCAL = 3        # a 3-4B local model reads far less at once than a cloud model
 MAX_TAGS = 5
 
 SYSTEM = ("You are an expert short-form video editor. You pick the moments from long videos that will "
@@ -194,7 +195,8 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
     used = "heuristic"
     if llm is not None and windows:
         indexed = list(enumerate(windows))
-        batches = [indexed[i:i + BATCH] for i in range(0, len(indexed), BATCH)]
+        size = BATCH_LOCAL if llm.provider == "ollama" else BATCH
+        batches = [indexed[i:i + size] for i in range(0, len(indexed), size)]
         failed = 0
 
         def run(batch):
@@ -204,7 +206,7 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
                 log.warning("llm batch failed, using heuristic", provider=llm.provider, error=str(e)[:200])
                 return None
 
-        with ThreadPoolExecutor(min(3, len(batches))) as ex:
+        with ThreadPoolExecutor(1 if llm.provider == "ollama" else min(3, len(batches))) as ex:
             outs = list(ex.map(run, batches))
         llm_w = min(0.9, 0.5 + 0.4 * profile.weights.get("transcript", 0.0))
         for batch, out in zip(batches, outs):

@@ -31,9 +31,10 @@ from recaply.ingest.sources import InputError, Source, resolve
 from recaply.log import get_logger
 from recaply.profiles import cues as cues_mod
 from recaply.profiles import detect_profile, get_profile
-from recaply.providers.llm import get_llm
+from recaply.providers.llm import get_llm, ollama_status
 from recaply.providers.transcribe import get_transcriber, transcribe_cached
 from recaply.providers.transcribe.base import BLOCK, blocks_for
+from recaply.score.beats import beat_score, clip_beats, score_beats
 from recaply.score.boundaries import snap
 from recaply.score.fusion import fuse
 from recaply.score.rerank import headline, rerank
@@ -258,11 +259,26 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
 
     # ---- score: LLM re-rank of the shortlist
     llm = get_llm(opts.llm)
+    if llm is not None and llm.provider == "ollama":
+        st = ollama_status(settings.ollama_url, llm.model)
+        if not (st["running"] and st["model_ready"]):
+            tel.note(f"local AI not ready: {st['hint']} Scored by rules instead.")
+            llm = None
     if llm is None:
         tel.note(f"no LLM configured ({opts.llm or settings.llm_provider}); heuristic scores")
     progress("Scoring with AI" if llm else "Scoring", 0.76)
     with tel.stage("score"):
         suggestions, scorer = rerank(windows, profile, src.title, llm, tel)
+
+    # ---- story beats: label what each shortlisted moment does (hook / setup / build / payoff ...)
+    beats_by_window: list[list[dict]] = [[] for _ in windows]
+    if llm is not None and settings.story_beats and scorer != "heuristic":
+        progress("Finding the story beats", 0.86)
+        with tel.stage("beats"), ThreadPoolExecutor(1 if llm.provider == "ollama" else 3) as ex:
+            beats_by_window = list(ex.map(
+                lambda ws: score_beats(words_between(ws[0].words, ws[1]["start"], ws[1]["end"]), llm, profile,
+                                       src.title, tel) if ws[0].words else [],
+                zip(windows, suggestions)))
 
     # ---- select: clean boundaries, de-duplicate, rank
     db = to_db(rms)
@@ -270,6 +286,10 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     for i, (w, sug) in enumerate(zip(windows, suggestions), 1):
         s, e = snap(w.words, sug["start"], sug["end"], profile.clip_min, profile.clip_max, duration, energy=db)
         cw = words_between(w.words, s, e)
+        beats = clip_beats(beats_by_window[i - 1], s, e)
+        bscore = beat_score(beats)
+        if bscore is not None:          # the story pass nudges the rank a little: 80% as before, 20% best payoff
+            sug["score"] = round(0.8 * sug["score"] + 0.2 * bscore, 1)
         if sug.get("llm_score") is None:           # rule-based: title from the final clip's best line
             sug["title"] = headline(cw, profile) or f"Moment at {fmt_hms(w.peak)}"
             sug["description"] = sug.get("description") or sug["title"]
@@ -279,7 +299,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
             "signal_score": round(100 * w.signal_score, 1), "text_score": round(100 * w.text_score, 1),
             "reason": sug["reason"], "title": sug["title"], "hook": sug["hook"],
             "description": sug.get("description") or "", "hashtags": sug.get("hashtags") or [],
-            "emphasis": sug.get("emphasis") or [],
+            "emphasis": sug.get("emphasis") or [], "beats": beats, "beat_score": bscore,
             "transcript": " ".join(x["w"] for x in cw)[:1500], "signals": w.signals,
             "window": [round(w.start, 1), round(w.end, 1)],
         })

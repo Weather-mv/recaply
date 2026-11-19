@@ -26,3 +26,6 @@ rapidocr==3.9.2
 
 # Live mode (optional, recommended): reads Twitch / YouTube live streams
 #   pip install streamlink
+
+# Server job queue (optional; RECAPLY_QUEUE=rq, see docker-compose.yml):
+#   pip install "rq>=2.0" "redis>=5.0"     then run workers with: python -m recaply worker

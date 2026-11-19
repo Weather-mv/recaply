@@ -1,3 +1,7 @@
 # Development and tests only (not bundled in the Windows app)
 -r requirements.txt
 pytest>=8.3
+# queue tests (RQ against an in-memory Redis)
+rq>=2.0
+redis>=5.0
+fakeredis>=2.26

@@ -301,7 +301,7 @@ and are masked in logs.
 | Setting | Options (default first) |
 |---------|-------------------------|
 | `RECAPLY_TRANSCRIBER` | `faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
-| `RECAPLY_LLM` | `gemini` (`GEMINI_API_KEY`, free tier), `anthropic` (`ANTHROPIC_API_KEY`, Claude Haiku), `openai` (`OPENAI_API_KEY`), `ollama` (local, `OLLAMA_URL`), `none` |
+| `RECAPLY_LLM` | `ollama` (default: local and free, `OLLAMA_URL`, `RECAPLY_OLLAMA_MODEL`; check with `python -m recaply status`), `gemini` (`GEMINI_API_KEY`), `anthropic` (`ANTHROPIC_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
 
 ### Add a content profile
 
