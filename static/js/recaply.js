@@ -1,4 +1,4 @@
-// Recaply — shared page behaviour: theme switch, CSRF on every request,
+// Clipforge — shared page behaviour: theme switch, CSRF on every request,
 // account menu, flash messages, plan limits and scroll reveals.
 (() => {
   const root = document.documentElement;

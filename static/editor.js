@@ -1,4 +1,4 @@
-/* Recaply editor — the page side of editor.py.
+/* Clipforge editor — the page side of editor.py.
  *
  * The preview canvas draws the same document the server renders, with the same
  * geometry, font file, text wrapping, keyframe interpolation, in/out
@@ -2063,8 +2063,8 @@
       const left = enc && r.eta != null && pc > 3 ? ` · ${r.eta < 60 ? `${Math.max(1, r.eta)} s` : `${Math.round(r.eta / 60)} min`} left` : "";
       $("exp-txt").textContent = r.state === "queued" ? "Waiting for a free encoder…" : enc ? `Exporting ${pc}%${left}` : `${r.stage || "Preparing"}…`;
       $("exp-bar").style.width = `${enc ? (r.progress || 0) * 100 : 4}%`;
-      document.title = `${r.state === "queued" ? "Waiting" : enc ? `${pc}%` : "Preparing"} · ${$("name").value} — Recaply`;
-    } else document.title = `${$("name").value} — Recaply editor`;
+      document.title = `${r.state === "queued" ? "Waiting" : enc ? `${pc}%` : "Preparing"} · ${$("name").value} — Clipforge`;
+    } else document.title = `${$("name").value} — Clipforge editor`;
     $("exp-open").textContent = busy ? "Exporting…" : "Export";
     $("exp-go").disabled = busy;
     $("exp-last").hidden = r.state !== "done";
@@ -2077,7 +2077,7 @@
     const r = await fetch(`/api/editor/${PID}/export`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ doc }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return r.status === 402 || r.status === 503 ? null : toast(j.error || "Couldn't start the export.");  // those two are shown by recaply.js
-    if (j.watermark) toast("Exporting with a Recaply watermark (free plan). Upgrade to remove it.");
+    if (j.watermark) toast("Exporting with a Clipforge watermark (free plan). Upgrade to remove it.");
     dirty = false; paintSaved("Saved", "ok");
     P.render = { state: "queued", progress: 0 }; $("exp-pop").hidden = true; paintExport(); pollExport();
   };
@@ -2146,7 +2146,7 @@
     }
     $("cover").hidden = true;
     meta = j.meta; doc = j.doc; expSize = doc.size || "1080";
-    $("name").value = j.name; document.title = `${j.name} — Recaply editor`;
+    $("name").value = j.name; document.title = `${j.name} — Clipforge editor`;
     if (document.fonts) { try { await document.fonts.load(`40px "RecaplyFont"`); } catch (_) {} }
     for (const L of doc.layers) {
       L.kf = L.kf || {}; L.anim_in = L.anim_in || { type: "none", dur: 0.5 }; L.anim_out = L.anim_out || { type: "none", dur: 0.5 };

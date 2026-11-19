@@ -1,6 +1,6 @@
 {# App navigation. Set `active` before including: home, recaps, reels, editor or account. #}
 <nav class="nav"><div class="nav-in">
-  <a class="brand" href="/app" aria-label="Recaply dashboard">{% include "_logo.html" %}Recaply</a>
+  <a class="brand" href="/app" aria-label="Clipforge dashboard">{% include "_logo.html" %}Clipforge</a>
   <div class="nav-links">
     <a href="/app" class="{{ 'on' if active in ('home', 'recaps') }}" title="Your recaps">Recaps</a>
     <a href="/reels" class="{{ 'on' if active == 'reels' }}" title="Turn clips into 9:16 reels">Reels</a>
@@ -24,7 +24,7 @@
         <div class="menu-head"><b>{{ user.name or user.email.split('@')[0] }}</b><span>{{ user.email }}</span></div>
         <a href="/account" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Account</a>
         <a href="/pricing" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></svg>Plans &amp; billing</a>
-        <a href="{{ '/website' if desktop else '/' }}" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Recaply website</a>
+        <a href="{{ '/website' if desktop else '/' }}" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>Clipforge website</a>
         {% if desktop %}<a href="/library" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Open videos folder</a>{% endif %}
         <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="item" type="submit" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3"/></svg>Log out</button></form>

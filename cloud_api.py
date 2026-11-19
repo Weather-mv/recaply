@@ -17,7 +17,7 @@ is on and charges clips against it before downloading or exporting.
 
 Plus /auth/handoff, which turns a handoff link into a website session.
 
-The web app (/app on the website) runs on the Recaply helper on the user's
+The web app (/app on the website) runs on the Clipforge helper on the user's
 PC. The website makes a one-time connect code for the signed-in user
 (connect_code); the browser takes it to the helper on 127.0.0.1, and the
 helper trades it here for its own token, so it's signed in to the same account.
@@ -154,7 +154,7 @@ _used_lock = threading.Lock()
 
 
 def connect_code(user):
-    """A one-time code (2 minutes) that signs the user's Recaply helper in to this account."""
+    """A one-time code (2 minutes) that signs the user's Clipforge helper in to this account."""
     return URLSafeTimedSerializer(current_app.secret_key, salt="recaply-connect").dumps(
         {"uid": user["id"], "sv": user["session_ver"], "n": secrets.token_urlsafe(12)})
 

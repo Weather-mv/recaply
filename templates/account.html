@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Account · Recaply</title>
+<title>Account · Clipforge</title>
 {% include "_theme.html" %}
 <link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
 </head>
@@ -55,7 +55,7 @@
     </section>
 
     <section class="panel-card rise d3" id="profile">
-      <h2>Profile</h2><p>How you appear in Recaply.</p>
+      <h2>Profile</h2><p>How you appear in Clipforge.</p>
       <form method="post" action="/account/profile" class="form-row">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Name<input class="field" name="name" maxlength="60" value="{{ user.name }}"></label>

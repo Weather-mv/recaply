@@ -3,7 +3,7 @@ import path from "node:path";
 import { defineConfig } from "vite";
 
 // Built into ../static/studio and served by Flask under /studio (see studio_app.py).
-// `npm run dev` proxies the API to a running Recaply (python app.py) on :5000.
+// `npm run dev` proxies the API to a running Clipforge (python app.py) on :5000.
 export default defineConfig({
   base: "/static/studio/",
   plugins: [react()],

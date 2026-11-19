@@ -1,4 +1,4 @@
-"""Draw the Recaply logo (blue tile, replay arrow, play triangle) as a Windows .ico."""
+"""Draw the Clipforge logo (blue tile, replay arrow, play triangle) as a Windows .ico."""
 import math
 import os
 import sys

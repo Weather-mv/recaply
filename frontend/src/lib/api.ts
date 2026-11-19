@@ -31,7 +31,7 @@ export async function api<T>(path: string, init: { method?: string; json?: unkno
     /* not JSON (an HTML error page) */
   }
   if (res.status === 401 && typeof data.login === "string") {
-    window.location.href = data.login as string; // not signed in: go to Recaply's login page
+    window.location.href = data.login as string; // not signed in: go to Clipforge's login page
   }
   if (!res.ok) {
     throw new ApiError(String(data.error ?? `Request failed (${res.status})`), res.status, data);

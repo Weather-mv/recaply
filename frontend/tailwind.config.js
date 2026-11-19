@@ -1,6 +1,6 @@
 import animate from "tailwindcss-animate";
 
-/** shadcn/ui token set (HSL variables in src/index.css) + Recaply's brand and beat colours. */
+/** shadcn/ui token set (HSL variables in src/index.css) + Clipforge's brand and beat colours. */
 export default {
   darkMode: ["class"],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],

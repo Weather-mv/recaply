@@ -565,7 +565,7 @@ def editor_asset(pid):
         im = im.convert("RGBA")
         im.thumbnail((2048, 2048))
     except Exception:  # noqa: BLE001
-        return jsonify({"error": "That isn't a picture Recaply can read (use PNG, JPG or WebP)."}), 400
+        return jsonify({"error": "That isn't a picture Clipforge can read (use PNG, JPG or WebP)."}), 400
     name = uuid.uuid4().hex[:12] + ".png"
     im.save(os.path.join(proj_dir(pid), "assets", name))
     storage.upload(os.path.join(proj_dir(pid), "assets", name))

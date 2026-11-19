@@ -191,7 +191,7 @@ export default function Project() {
       {res && !clip && <Card className="mx-auto mt-10 max-w-md p-8 text-center"><p className="font-bold">No clips found</p><p className="mt-1 text-sm text-muted-foreground">Try a longer video or another content type.</p></Card>}
 
       {/* errors from fetching are inline, not fatal */}
-      {error && error.status !== 404 && <p role="alert" className="mt-4 text-sm text-destructive">{error instanceof ApiError ? error.message : "Couldn't reach Recaply."}</p>}
+      {error && error.status !== 404 && <p role="alert" className="mt-4 text-sm text-destructive">{error instanceof ApiError ? error.message : "Couldn't reach Clipforge."}</p>}
     </AppShell>
   );
 }

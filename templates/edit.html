@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Edit clip · Recaply</title>
+<title>Edit clip · Clipforge</title>
 {% include "_theme.html" %}
 <style>
   .wrap { max-width: var(--page); margin: 0 auto; padding: 0 24px; }
@@ -104,7 +104,7 @@
     </aside>
   </div>
 </div>
-<footer>Recaply</footer>
+<footer>Clipforge</footer>
 <script>
   const $ = id => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -222,7 +222,7 @@
     try {
       await api("/api/publish", "POST", { job: JOB_ID, file: f.value, platform: $("p-platform").value, title: $("p-title").value,
         description: $("p-desc").value, tags: $("p-tags").value, privacy: $("p-privacy").value, when: $("p-when").value });
-      m.textContent = $("p-when").value ? "Scheduled. It uploads while Recaply is running." : "Queued: uploading now. Follow it on the Queue page.";
+      m.textContent = $("p-when").value ? "Scheduled. It uploads while Clipforge is running." : "Queued: uploading now. Follow it on the Queue page.";
     } catch (e) { m.textContent = e.message; m.classList.add("err"); }
   };
 

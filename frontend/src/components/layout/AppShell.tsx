@@ -52,7 +52,7 @@ export function AppShell({ children, wide }: { children: ReactNode; wide?: boole
               <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
                 <Clapperboard className="size-5" />
               </span>
-              Recaply
+              Clipforge
               <span className="hidden rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground sm:inline">Studio</span>
             </Link>
             <nav className="hidden items-center gap-1 md:flex">

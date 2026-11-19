@@ -31,7 +31,7 @@ def discord_payload(event: dict) -> dict:
     if event.get("link"):
         emb["url"] = event["link"]
     # allowed_mentions empty: a clip title can never ping @everyone
-    return {"username": "Recaply", "embeds": [emb], "allowed_mentions": {"parse": []}}
+    return {"username": "Clipforge", "embeds": [emb], "allowed_mentions": {"parse": []}}
 
 
 def send(cfg: ChannelConfig, kind: str, **data) -> dict:

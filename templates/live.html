@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Live · Recaply</title>
+<title>Live · Clipforge</title>
 {% include "_theme.html" %}
 <style>
   .wrap { max-width: var(--page); margin: 0 auto; padding: 0 24px; }
@@ -46,7 +46,7 @@
   <div class="head">
     <span class="kicker"><i></i>Live</span>
     <h1>Clip streams while they happen</h1>
-    <p>Recaply records the stream into a rolling buffer on this PC, watches the sound and chat, and when a big moment hits it cuts the clip
+    <p>Clipforge records the stream into a rolling buffer on this PC, watches the sound and chat, and when a big moment hits it cuts the clip
        (a little before, a little after) and ranks and titles it in the background. It stops by itself when the stream ends.</p>
   </div>
   <div class="layout">
@@ -73,14 +73,14 @@
       <input class="field" id="f-discord" placeholder="Discord webhook URL (optional)">
       <input class="field" id="f-webhook" placeholder="Other webhook URL (optional)">
       <label class="chk"><input type="checkbox" id="f-shorts"> Also render the best clip as a finished short</label>
-      <label class="chk"><input type="checkbox" id="f-auto"> Watch automatically when Recaply starts</label>
+      <label class="chk"><input type="checkbox" id="f-auto"> Watch automatically when Clipforge starts</label>
       <button class="btn" type="button" id="f-add" style="width:100%;margin-top:6px">Save and start watching</button>
       <p class="note" id="f-note"></p>
       <p class="note">The buffer keeps the last 45 minutes of the stream on disk (about 1-2 GB at 720p). Only watch streams you have the right to clip.</p>
     </aside>
   </div>
 </div>
-<footer>Recaply</footer>
+<footer>Clipforge</footer>
 <script>
   const $ = id => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };

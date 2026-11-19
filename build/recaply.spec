@@ -1,4 +1,4 @@
-# PyInstaller spec for the Recaply Windows app (run through build/build.ps1).
+# PyInstaller spec for the Clipforge Windows app (run through build/build.ps1).
 #
 # SECURITY: only the folders listed in `datas` are bundled. The project's .env
 # (storage keys) and cookies.txt (a YouTube login) must never be added here;

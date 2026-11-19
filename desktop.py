@@ -1,5 +1,5 @@
 """
-desktop.py — starts Recaply as a Windows app.
+desktop.py — starts Clipforge as a Windows app.
 
 It runs the app (app.py) on a private local server, 127.0.0.1 on a free
 port, and shows it in a native window (Edge WebView2, part of Windows 10/11).
@@ -11,7 +11,7 @@ Everything (recaps, clips, reels, the editor) stays on this PC under
     Recaply.exe --helper         # no window: runs in the tray for the web app
 
 The same local server answers the website's web app (/app), which opens
-Recaply in a browser tab instead of the window; see desktop_auth.py. Starting
+Clipforge in a browser tab instead of the window; see desktop_auth.py. Starting
 it again while it's open brings the open window to the front.
 """
 
@@ -35,7 +35,7 @@ html,body{margin:0;height:100%;background:#08080a;color:#fff;font:600 17px 'Sego
 </style></head><body><div class="c"><div class="logo"><svg width="34" height="34" viewBox="0 0 32 32">
 <path d="M22.6 10.6A8 8 0 1 0 24 16" fill="none" stroke="white" stroke-width="2.6" stroke-linecap="round"/>
 <path d="M24.4 6.8v4.6h-4.6" fill="none" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M14 12.3v7.4l5.8-3.7z" fill="white"/></svg></div><div>Starting Recaply…</div><div class="bar"><i></i></div></div></body></html>"""
+<path d="M14 12.3v7.4l5.8-3.7z" fill="white"/></svg></div><div>Starting Clipforge…</div><div class="bar"><i></i></div></div></body></html>"""
 
 
 def hide_console_windows():
@@ -61,7 +61,7 @@ def app_dir():
 
 
 def prepare_environment():
-    """Settings and paths that must be in place before any Recaply module is imported."""
+    """Settings and paths that must be in place before any Clipforge module is imported."""
     os.environ.setdefault("RECAPLY_DESKTOP", "1")
     os.makedirs(app_dir(), exist_ok=True)
     base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
@@ -74,14 +74,14 @@ def prepare_environment():
         # A windowed app has no console: keep a log instead.
         log = open(os.path.join(app_dir(), "recaply.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
-        print(f"\n--- Recaply started {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
+        print(f"\n--- Clipforge started {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
 
 
 INSTANCE = None   # path of the file that tells a second launch where the open window is
 
 
 def other_instance(quiet):
-    """If Recaply is already running, ask it to show its window (unless `quiet`) and return True."""
+    """If Clipforge is already running, ask it to show its window (unless `quiet`) and return True."""
     try:
         with open(INSTANCE, encoding="utf-8") as f:
             info = json.load(f)
@@ -98,14 +98,14 @@ def bind_server(app):
     from waitress import create_server
     for port in (*HELPER_PORTS, 0):
         try:
-            return create_server(app, host="127.0.0.1", port=port, threads=16, channel_timeout=300, ident="Recaply")
+            return create_server(app, host="127.0.0.1", port=port, threads=16, channel_timeout=300, ident="Clipforge")
         except OSError:
             continue
-    raise OSError("No free port for Recaply's local server")
+    raise OSError("No free port for Clipforge's local server")
 
 
 def tray_icon(actions):
-    """Recaply's icon in the system tray (it keeps running there for the web app). None without pystray."""
+    """Clipforge's icon in the system tray (it keeps running there for the web app). None without pystray."""
     try:
         import pystray
         from PIL import Image
@@ -117,12 +117,12 @@ def tray_icon(actions):
     except OSError:
         image = Image.new("RGBA", (64, 64), "#0865ff")
     menu = pystray.Menu(
-        pystray.MenuItem("Open Recaply", lambda: actions["show"](), default=True),
+        pystray.MenuItem("Open Clipforge", lambda: actions["show"](), default=True),
         pystray.MenuItem("Open the web app in my browser", lambda: actions["web"]()),
         pystray.MenuItem("Open videos folder", lambda: actions["folder"]()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit Recaply", lambda: actions["quit"]()))
-    icon = pystray.Icon("Recaply", image, "Recaply", menu)
+        pystray.MenuItem("Quit Clipforge", lambda: actions["quit"]()))
+    icon = pystray.Icon("Clipforge", image, "Clipforge", menu)
     threading.Thread(target=icon.run, daemon=True, name="tray").start()
     return icon
 
@@ -136,7 +136,7 @@ def ask(title, text):
 
 
 def main():
-    """`Recaply.exe` opens the window. `Recaply.exe --helper` (the website's "Start Recaply"
+    """`Recaply.exe` opens the window. `Recaply.exe --helper` (the website's "Start Clipforge"
     button through recaply://, or Windows start-up) runs in the tray for the web app only."""
     global INSTANCE
     multiprocessing.freeze_support()        # editor worker processes start here and stop at this line
@@ -152,7 +152,7 @@ def main():
 
     webview.settings["ALLOW_DOWNLOADS"] = True
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
-    window = webview.create_window("Recaply", html=SPLASH, width=1400, height=900, min_size=(1024, 680),
+    window = webview.create_window("Clipforge", html=SPLASH, width=1400, height=900, min_size=(1024, 680),
                                    background_color="#08080a", text_select=True, hidden=helper)
     # Started for the web app, the window stays hidden (and loads nothing) until it's opened from the tray.
     state = {"app": None, "url": None, "loaded": False, "icon": None}
@@ -180,7 +180,7 @@ def main():
         os._exit(0)                               # stop background work right away
 
     def quit_app():
-        if busy() and not ask("Recaply is still working",
+        if busy() and not ask("Clipforge is still working",
                               "Downloads, reels or exports are still running and will stop. Quit anyway?"):
             return
         stop()
@@ -222,30 +222,30 @@ def main():
                 state["loaded"] = True
                 window.load_url(state["url"])
             elif state["icon"] and not quiet:
-                state["icon"].notify("Recaply is running in the tray. Go back to your browser to use the web app.",
-                                     "Recaply is ready")
+                state["icon"].notify("Clipforge is running in the tray. Go back to your browser to use the web app.",
+                                     "Clipforge is ready")
         except Exception as e:  # noqa: BLE001 — show it instead of a blank window
             import traceback
             traceback.print_exc()
             window.load_html(f"<body style='font:16px Segoe UI;padding:40px;background:#08080a;color:#fff'>"
-                             f"<h2>Recaply couldn't start</h2><p>{type(e).__name__}: {str(e)[:400]}</p>"
+                             f"<h2>Clipforge couldn't start</h2><p>{type(e).__name__}: {str(e)[:400]}</p>"
                              f"<p>Details are in {os.path.join(app_dir(), 'recaply.log')}</p></body>")
             window.show()
 
     def closing():
-        """With the tray icon, closing the window keeps Recaply running there (for the web
-        app); "Quit Recaply" in the tray stops it. Without it, ask before closing while
+        """With the tray icon, closing the window keeps Clipforge running there (for the web
+        app); "Quit Clipforge" in the tray stops it. Without it, ask before closing while
         downloads, reels or exports are still running."""
         if state["icon"]:
             threading.Thread(target=window.hide, daemon=True).start()
             if not state.get("told"):
                 state["told"] = True
-                state["icon"].notify("Recaply is still running in the tray, so the web app keeps working. "
-                                     "Right-click the icon and choose Quit to stop it.", "Recaply")
+                state["icon"].notify("Clipforge is still running in the tray, so the web app keeps working. "
+                                     "Right-click the icon and choose Quit to stop it.", "Clipforge")
             return False
         if busy():
             return window.create_confirmation_dialog(
-                "Recaply is still working", "Downloads, reels or exports are still running and will stop. Close anyway?")
+                "Clipforge is still working", "Downloads, reels or exports are still running and will stop. Close anyway?")
         return True
 
     window.events.closing += closing

@@ -1,5 +1,5 @@
 """
-app.py — Recaply itself: recaps, clips and reels (the editor is in
+app.py — Clipforge itself: recaps, clips and reels (the editor is in
 editor_routes.py). In the Windows app (desktop.py) it serves the app's window
 from 127.0.0.1 and accounts come from the online service (desktop_auth.py);
 it can also still run as a self-hosted web app with local accounts (auth.py).
@@ -1156,9 +1156,9 @@ if __name__ == "__main__":
     try:
         from waitress import serve
     except ImportError:
-        print(f"Recaply (dev server) is running. Open http://{shown}:{port} in your browser.")
+        print(f"Clipforge (dev server) is running. Open http://{shown}:{port} in your browser.")
         app.run(host=host, port=port, debug=False, threaded=True)
     else:
-        print(f"Recaply is running. Open http://{shown}:{port} in your browser.")
+        print(f"Clipforge is running. Open http://{shown}:{port} in your browser.")
         serve(app, host=host, port=port, threads=env_int("RECAPLY_THREADS", 16),
-              channel_timeout=300, ident="Recaply")
+              channel_timeout=300, ident="Clipforge")

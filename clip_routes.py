@@ -162,7 +162,7 @@ def clips_start():
             except Exception as e:  # noqa: BLE001 — shown to the user as is
                 flash(f"Couldn't start live clipping: {e}", "error")
                 return redirect("/app")
-            flash("That's a live stream, so Recaply is watching it and will clip the big moments as they happen.", "ok")
+            flash("That's a live stream, so Clipforge is watching it and will clip the big moments as they happen.", "ok")
             return redirect("/live")
     jid = _start(text, opts, title=os.path.basename(text) if not looks_like_url(text) else "")
     return redirect(f"/clipjob/{jid}")

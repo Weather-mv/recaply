@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Recap — Recaply</title>
+<title>Recap — Clipforge</title>
 {% include "_theme.html" %}
 <style>
   .wrap { max-width: var(--page); margin: 0 auto; padding: 40px 24px calc(150px + env(safe-area-inset-bottom)); }
@@ -1077,7 +1077,7 @@
     job = data;
     if (data.now) clockOffset = data.now - Date.now() / 1000;
     $("title").textContent = data.title || "Analyzing…";
-    document.title = (data.title || "Recap") + " — Recaply";
+    document.title = (data.title || "Recap") + " — Clipforge";
     const following = LIVE_ACTIVE.includes(data.live_state);
     $("eyebrow").textContent = data.mode === "spikes" ? "Loudness recap" : data.live ? "Live round recap" : "Round recap";
     $("badge").textContent = following ? "live" : data.state;

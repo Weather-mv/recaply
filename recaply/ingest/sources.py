@@ -22,7 +22,7 @@ MEDIA_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".ts", ".flv",
 
 
 class InputError(ValueError):
-    """The input isn't something Recaply can read (shown to the user as is)."""
+    """The input isn't something Clipforge can read (shown to the user as is)."""
 
 
 @dataclass
@@ -133,14 +133,14 @@ def resolve_file(path: str) -> Source:
     if not os.path.isfile(path):
         raise InputError("File not found.")
     if not path.lower().endswith(MEDIA_EXTS):
-        raise InputError("That isn't a video or audio file Recaply can read.")
+        raise InputError("That isn't a video or audio file Clipforge can read.")
     from pipeline import probe_media
     try:
         video, audio, duration = probe_media(path)
     except Exception as e:  # noqa: BLE001
         raise InputError("Couldn't read that file (is it a complete video?).") from e
     if audio is None:
-        raise InputError("That file has no sound track; Recaply needs audio to find moments.")
+        raise InputError("That file has no sound track; Clipforge needs audio to find moments.")
     title = os.path.splitext(os.path.basename(path))[0]
     return Source(kind="file", key=file_key(path), title=title, duration=float(duration or 0),
                   location=path, has_video=video is not None,

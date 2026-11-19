@@ -1,5 +1,5 @@
 <#
-  Builds the Recaply Windows app and its installer.
+  Builds the Clipforge Windows app and its installer.
 
     powershell -ExecutionPolicy Bypass -File build\build.ps1 -CloudUrl https://recaply.example.com
 
@@ -27,7 +27,7 @@ $FfmpegZip = "ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip"
 $FfmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FfmpegZip"
 
 $Version = (Select-String -Path (Join-Path $Root "config.py") -Pattern '^VERSION = "([\d.]+)"').Matches[0].Groups[1].Value
-Write-Host "Building Recaply $Version (online service: $CloudUrl)"
+Write-Host "Building Clipforge $Version (online service: $CloudUrl)"
 
 # ---- bundled tools: ffmpeg + ffprobe (shared build) and node (for YouTube's player challenge) ----
 New-Item -ItemType Directory -Force (Join-Path $Stage "bin"), $Cache | Out-Null
@@ -51,8 +51,8 @@ $v = ($Version.Split(".") + @("0", "0", "0"))[0..3] -join ", "
 VSVersionInfo(
   ffi=FixedFileInfo(filevers=($v), prodvers=($v)),
   kids=[StringFileInfo([StringTable('040904B0', [
-    StringStruct('CompanyName', 'Recaply'), StringStruct('FileDescription', 'Recaply'),
-    StringStruct('FileVersion', '$Version'), StringStruct('ProductName', 'Recaply'),
+    StringStruct('CompanyName', 'Clipforge'), StringStruct('FileDescription', 'Clipforge'),
+    StringStruct('FileVersion', '$Version'), StringStruct('ProductName', 'Clipforge'),
     StringStruct('ProductVersion', '$Version'), StringStruct('OriginalFilename', 'Recaply.exe')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])]
 )

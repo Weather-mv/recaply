@@ -133,7 +133,7 @@ class YouTubePublisher(Publisher):
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 if q.get("state", [""])[0] == state and ("code" in q or "error" in q):
                     got.update({k: v[0] for k, v in q.items()})
-                    msg = "Recaply is connected to YouTube. You can close this tab." if "code" in q else "Sign-in was cancelled."
+                    msg = "Clipforge is connected to YouTube. You can close this tab." if "code" in q else "Sign-in was cancelled."
                     self.send_response(200)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
                     self.end_headers()
@@ -164,7 +164,7 @@ class YouTubePublisher(Publisher):
         tok = _form(self.token_url, {"code": got["code"], "client_id": self.client_id, "client_secret": self.client_secret,
                                      "redirect_uri": redirect, "grant_type": "authorization_code", "code_verifier": verifier})
         if not tok.get("refresh_token"):
-            raise PublishError("Google didn't return a refresh token. Remove Recaply's access in your Google account and try again.")
+            raise PublishError("Google didn't return a refresh token. Remove Clipforge's access in your Google account and try again.")
         _write_tokens({"refresh_token": tok["refresh_token"], "access_token": tok.get("access_token"),
                        "expires": time.time() + float(tok.get("expires_in", 3000)) - 60})
 

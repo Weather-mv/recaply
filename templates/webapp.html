@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Recaply web app</title>
-<meta name="description" content="Recaply in your browser: videos are processed by Recaply on your own PC.">
+<title>Clipforge web app</title>
+<meta name="description" content="Clipforge in your browser: videos are processed by Clipforge on your own PC.">
 {% include "_theme.html" %}
 <link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
 <style>
@@ -43,34 +43,34 @@
       <div id="s-check">
         <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
         <h1>Connecting to your PC…</h1>
-        <p>Recaply processes videos on your own computer, so it's fast and nothing gets uploaded.</p>
+        <p>Clipforge processes videos on your own computer, so it's fast and nothing gets uploaded.</p>
         <div class="bar"><i></i></div>
       </div>
 
       <div id="s-open" hidden>
         <div class="ic ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
-        <h1>Opening Recaply…</h1>
-        <p>Connected to Recaply on this PC.</p>
+        <h1>Opening Clipforge…</h1>
+        <p>Connected to Clipforge on this PC.</p>
         <div class="bar"><i></i></div>
         <p class="err" id="open-err" hidden></p>
       </div>
 
       <div id="s-missing" hidden>
         <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></div>
-        <h1>Start Recaply on this PC</h1>
-        <p>The web app uses Recaply on your computer to download and cut videos. Start it, and this page opens it by itself.</p>
+        <h1>Start Clipforge on this PC</h1>
+        <p>The web app uses Clipforge on your computer to download and cut videos. Start it, and this page opens it by itself.</p>
         <div class="row">
-          <a class="btn lg" href="recaply://start" id="start">Start Recaply</a>
+          <a class="btn lg" href="recaply://start" id="start">Start Clipforge</a>
           {% if installer %}<a class="btn lg ghost" href="{{ installer }}" download>Download for Windows</a>
           {% else %}<a class="btn lg ghost" href="/download">Download for Windows</a>{% endif %}
         </div>
         <div class="steps">
-          <div><b>1</b><span><strong>First time?</strong> Download and install Recaply (Windows 10 and 11). It runs quietly in the system tray.</span></div>
-          <div><b>2</b><span><strong>Already installed?</strong> Click <strong>Start Recaply</strong>. If your browser asks, allow it to open Recaply.</span></div>
-          <div><b>3</b><span>If your browser asks to <strong>access devices on your local network</strong>, choose Allow: that's this page talking to Recaply on your PC.</span></div>
+          <div><b>1</b><span><strong>First time?</strong> Download and install Clipforge (Windows 10 and 11). It runs quietly in the system tray.</span></div>
+          <div><b>2</b><span><strong>Already installed?</strong> Click <strong>Start Clipforge</strong>. If your browser asks, allow it to open Clipforge.</span></div>
+          <div><b>3</b><span>If your browser asks to <strong>access devices on your local network</strong>, choose Allow: that's this page talking to Clipforge on your PC.</span></div>
         </div>
-        <p class="muted" id="waiting">Waiting for Recaply…</p>
-        <p class="muted">Recaply is already running? <a href="#" id="force">Open it anyway</a></p>
+        <p class="muted" id="waiting">Waiting for Clipforge…</p>
+        <p class="muted">Clipforge is already running? <a href="#" id="force">Open it anyway</a></p>
       </div>
 
     </div>
@@ -88,7 +88,7 @@
   const $ = id => document.getElementById(id);
   const show = id => ["s-check", "s-open", "s-missing"].forEach(s => $(s).hidden = s !== id);
 
-  // Ask every port at once: whichever Recaply answers first wins.
+  // Ask every port at once: whichever Clipforge answers first wins.
   function ping(port) {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 1500);
@@ -117,12 +117,12 @@
   }
 
   let timer = null;
-  function wait() {           // keep looking while the user starts or installs Recaply
+  function wait() {           // keep looking while the user starts or installs Clipforge
     clearInterval(timer);
     timer = setInterval(async () => { const p = await find(); if (p) { clearInterval(timer); open(p); } }, 2000);
   }
 
-  $("start").addEventListener("click", () => { $("waiting").textContent = "Starting Recaply… this takes a few seconds."; wait(); });
+  $("start").addEventListener("click", () => { $("waiting").textContent = "Starting Clipforge… this takes a few seconds."; wait(); });
   $("force").addEventListener("click", e => { e.preventDefault(); open(PORTS[0]); });
   addEventListener("pageshow", e => { if (e.persisted) { opening = false; start(); } });   // came back with the Back button
 

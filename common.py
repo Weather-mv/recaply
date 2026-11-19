@@ -59,7 +59,7 @@ def allowed_url(url):
 BOT_CHECK_HELP = (
     "YouTube is asking this server to confirm it's not a bot. Export your YouTube "
     "cookies (the \"Get cookies.txt LOCALLY\" browser extension, on youtube.com while "
-    "logged in) and save the file as cookies.txt in the Recaply folder (or point "
+    "logged in) and save the file as cookies.txt in the Clipforge folder (or point "
     "RECAPLY_COOKIES at it), then try again. No restart needed.")
 
 

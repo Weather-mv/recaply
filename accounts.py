@@ -45,15 +45,15 @@ TRIAL_DAYS = 5
 PLANS = {
     "free": {
         "name": "Free", "price": 0, "clips": 5, "watermark": True, "priority": 0, "parallel": 2,
-        "blurb": "Try Recaply for 5 days.",
-        "features": ["5 clips during the 5-day trial", "Round detection, ACE and clutch filters",
-                     "AI captions included", "9:16 reels with a Recaply watermark"],
+        "blurb": "Try Clipforge for 5 days.",
+        "features": ["5 clips during the 5-day trial", "Story beats and clip scores",
+                     "AI captions included", "9:16 shorts with a Clipforge watermark"],
     },
     "starter": {
         "name": "Starter", "price": 9, "clips": 30, "watermark": False, "priority": 1, "parallel": 3,
         "blurb": "For creators posting every week.",
-        "features": ["30 clips every month", "No watermark", "Full editing panel and timeline",
-                     "AI captions (Whisper large-v3)", "POV reels with the kill feed"],
+        "features": ["30 clips every month", "No watermark", "Director editor with transcript cutting",
+                     "Auto 9:16 reframe and karaoke captions", "B-roll and caption translation"],
     },
     "pro": {
         "name": "Pro", "price": 19, "clips": None, "watermark": False, "priority": 2, "parallel": 6,

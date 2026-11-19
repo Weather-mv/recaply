@@ -2,7 +2,7 @@
 desktop_auth.py — accounts in the Windows app.
 
 The app's pages are served by a local server on 127.0.0.1 that only the
-Recaply window may use:
+Clipforge window may use:
 
   * The window opens /__open?k=<key>, a random key made at every launch,
     which sets a cookie; requests without it are refused, so other programs
@@ -76,7 +76,7 @@ class CloudError(Exception):
 def _call(method, path, body=None, token=None, timeout=20):
     """(status, json) from the online service's API. Raises CloudError when it can't be reached."""
     data = json.dumps(body).encode() if body is not None else None
-    headers = {"Content-Type": "application/json", "User-Agent": f"Recaply/{VERSION} (Windows)"}
+    headers = {"Content-Type": "application/json", "User-Agent": f"Clipforge/{VERSION} (Windows)"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(f"{CLOUD_URL}/api/v1/{path}", data=data, method=method, headers=headers)
@@ -87,9 +87,9 @@ def _call(method, path, body=None, token=None, timeout=20):
         try:
             return e.code, json.load(e)
         except ValueError:
-            return e.code, {"error": f"Recaply's servers answered with an error ({e.code}). Try again in a minute."}
+            return e.code, {"error": f"Clipforge's servers answered with an error ({e.code}). Try again in a minute."}
     except (urllib.error.URLError, OSError, ValueError) as e:
-        raise CloudError("Can't reach Recaply's servers. Check your internet connection and try again.") from e
+        raise CloudError("Can't reach Clipforge's servers. Check your internet connection and try again.") from e
 
 
 # ---------- the saved sign-in (encrypted with Windows DPAPI) ----------
@@ -270,13 +270,13 @@ def init_app(app):
     @app.before_request
     def gate():
         if not _local_host(request.host):
-            return "Recaply only answers its own window.", 403
+            return "Clipforge only answers its own window.", 403
         path = request.path
         if path in ("/__open", "/__show", "/__web", "/__ping"):      # each checks its own key or code
             return None
         if not hmac.compare_digest(request.cookies.get(LAUNCH_COOKIE, ""), LAUNCH_KEY):
-            return ("Open Recaply from the Start menu.", 403) if request.method in SAFE_METHODS else (
-                jsonify({"error": "Restart Recaply and try again."}), 403)
+            return ("Open Clipforge from the Start menu.", 403) if request.method in SAFE_METHODS else (
+                jsonify({"error": "Restart Clipforge and try again."}), 403)
         if request.method not in SAFE_METHODS:
             origin = request.headers.get("Origin")
             if origin and urlparse(origin).netloc != request.host:
@@ -329,7 +329,7 @@ def _asset_version():
 def open_window():
     """The window's first page: proves it was opened by desktop.py, then shows the app."""
     if not hmac.compare_digest(request.args.get("k", ""), LAUNCH_KEY):
-        return "Open Recaply from the Start menu.", 403
+        return "Open Clipforge from the Start menu.", 403
     resp = make_response(redirect(url_for("app_home") if current_user() else url_for("auth.login")))
     resp.set_cookie(LAUNCH_COOKIE, LAUNCH_KEY, httponly=True, samesite="Strict")
     return resp
@@ -370,7 +370,7 @@ def signup():
         if code == 200:
             _signed_in(data)
             session.permanent = True
-            flash("Welcome to Recaply! Your 5-day free trial has started.", "ok")
+            flash("Welcome to Clipforge! Your 5-day free trial has started.", "ok")
             return redirect(url_for("app_home"))
         error = data.get("error") or "Couldn't create the account. Try again."
     return render_template("auth.html", mode="signup", error=error, form=form, plan=""), (400 if error else 200)
@@ -393,7 +393,7 @@ def _quiet(fn, *a, **k):
 
 
 def _in_web_tab():
-    """True in a browser tab opened from the website's web app (not the Recaply window)."""
+    """True in a browser tab opened from the website's web app (not the Clipforge window)."""
     return request.cookies.get(WEB_COOKIE) == "1"
 
 
@@ -412,7 +412,7 @@ def ping():
 @bp.route("/__web")
 def open_web():
     """The web app's first page in the browser: trades the website's one-time code for this
-    app's sign-in (same account as the website), then opens Recaply in the tab."""
+    app's sign-in (same account as the website), then opens Clipforge in the tab."""
     code = request.args.get("c", "")[:600]
     try:
         status, data = _call("POST", "connect", {"code": code, "device": device_label()}, timeout=15)

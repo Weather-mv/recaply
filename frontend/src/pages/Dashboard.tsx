@@ -230,7 +230,7 @@ export default function Dashboard() {
           <Card className="grid place-items-center gap-3 p-12 text-center">
             <Clapperboard className="size-10 text-muted-foreground" />
             <p className="text-lg font-semibold">No projects yet</p>
-            <p className="max-w-sm text-sm text-muted-foreground">Paste a link above. Recaply finds the best moments, labels the story beats and gets them ready to export.</p>
+            <p className="max-w-sm text-sm text-muted-foreground">Paste a link above. Clipforge finds the best moments, labels the story beats and gets them ready to export.</p>
             <ArrowRight className="size-5 -rotate-90 text-primary" />
           </Card>
         )}

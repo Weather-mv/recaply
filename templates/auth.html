@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{{ 'Log in' if mode == 'login' else 'Create your account' }} · Recaply</title>
+<title>{{ 'Log in' if mode == 'login' else 'Create your account' }} · Clipforge</title>
 <meta name="robots" content="noindex">
 {% include "_theme.html" %}
 <link rel="stylesheet" href="/static/css/site.css?v={{ asset_ver }}">
@@ -12,7 +12,7 @@
 {% include "_flash.html" %}
 <div class="auth">
   <aside class="auth-side">
-    <a class="brand" href="/">{% include "_logo.html" %}Recaply</a>
+    <a class="brand" href="/">{% include "_logo.html" %}Clipforge</a>
     <div>
       {% if mode == 'login' %}
         <h2>Welcome back. Your highlights are waiting.</h2>
@@ -21,19 +21,19 @@
         <h2>Start finding highlights in minutes.</h2>
         <p>Your 5-day free trial includes everything:</p>
         <ul>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Round detection with ACE and clutch tags</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>5 clips, POV reels and AI captions</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Story beats and scores for any video</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>5 clips, 9:16 shorts and AI captions</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>No card needed</li>
         </ul>
       {% endif %}
     </div>
-    <span style="color:rgb(255 255 255 / .7);font-size:14px">© Recaply</span>
+    <span style="color:rgb(255 255 255 / .7);font-size:14px">© Clipforge</span>
   </aside>
 
   <main class="auth-main">
     {% include "_theme_toggle.html" %}
     <div class="auth-box rise">
-      <a class="brand" href="/" style="margin-bottom:28px">{% include "_logo.html" %}Recaply</a>
+      <a class="brand" href="/" style="margin-bottom:28px">{% include "_logo.html" %}Clipforge</a>
       {% if mode == 'login' %}
         <h1>Log in</h1>
         <p class="sub">Good to see you again.</p>
@@ -48,7 +48,7 @@
               <button type="button" data-show>Show</button></div></div>
           <button class="btn" type="submit">Log in</button>
         </form>
-        <p class="alt-link">New to Recaply? <a href="/signup">Start your free trial</a></p>
+        <p class="alt-link">New to Clipforge? <a href="/signup">Start your free trial</a></p>
       {% else %}
         <h1>Create your account</h1>
         <p class="sub">5 days free. No card needed.</p>

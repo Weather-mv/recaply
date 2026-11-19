@@ -10,5 +10,5 @@ big moments as they happen and turn each one into a clip.
     notify     in-app events, a generic webhook, a Discord webhook
     manager    many channels at once, each with its own config
 
-Everything runs on the user's own machine, like the rest of Recaply.
+Everything runs on the user's own machine, like the rest of Clipforge.
 """

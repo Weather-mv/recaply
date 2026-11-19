@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Recaply</title>
+<title>Clipforge</title>
 {% include "_theme.html" %}
 <style>
   .wrap { max-width: var(--page); margin: 0 auto; padding: 0 24px; }
@@ -128,7 +128,7 @@
       <div class="hello">
         <span class="kicker rise"><i></i>New clips</span>
         <h1 class="rise d1">{% if user.name %}Hey {{ user.name.split(' ')[0] }}, what{% else %}What{% endif %} are we clipping today?</h1>
-        <p class="rise d2">Paste a stream, VOD, podcast or any video, or drop in a file. Recaply finds the best moments, scores them and cuts them into clips.</p>
+        <p class="rise d2">Paste a stream, VOD, podcast or any video, or drop in a file. Clipforge finds the best moments, scores them and cuts them into clips.</p>
       </div>
       {% if not ent.can_create %}
       <div class="upsell rise d2"><b>{{ 'Trial ended' if ent.plan == 'free' else 'Plan limit reached' }}</b><span>{{ ent.reason }}</span><a class="btn sm" href="/pricing">See plans</a></div>
@@ -244,7 +244,7 @@
   {% endif %}
 </div>
 
-<footer>Recaply</footer>
+<footer>Clipforge</footer>
 
 <script>
   const $ = id => document.getElementById(id);

@@ -1,4 +1,4 @@
-# Recaply v3: discovery and refactor plan (Step 0)
+# Clipforge v3: discovery and refactor plan (Step 0)
 
 Status: approved with the default answers on 2026-11-18. **Phase 1 is built**
 (branch `phase-1-core-pipeline`); **Phase 2 (Opus-style output) is built**
@@ -83,7 +83,7 @@ by content, no tests, no CLI, no publishing.
 
 Keep the stack (Flask, Waitress, yt-dlp, ffmpeg, faster-whisper, OpenCV,
 pywebview). One deliberate change: **the job queue**. The brief asks for
-Redis + RQ/Celery; Recaply is a desktop app that runs on gamers' PCs, where
+Redis + RQ/Celery; Clipforge is a desktop app that runs on gamers' PCs, where
 asking users to run Redis is not workable. So:
 
 - a `JobQueue` interface with a **SQLite-backed in-process implementation**

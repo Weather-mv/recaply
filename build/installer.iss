@@ -1,4 +1,4 @@
-; Inno Setup script for the Recaply Windows app (compiled by build/build.ps1).
+; Inno Setup script for the Clipforge Windows app, formerly Recaply (compiled by build/build.ps1).
 ; Installs for the current user only (no admin prompt) into
 ; %LOCALAPPDATA%\Programs\Recaply. Recaps and clips live in
 ; %LOCALAPPDATA%\Recaply\Library and are kept when the app is uninstalled,
@@ -10,10 +10,10 @@
 
 [Setup]
 AppId={{6B8C0E0A-3F0B-4C89-9E57-2F7C2B5E4A11}
-AppName=Recaply
+AppName=Clipforge
 AppVersion={#AppVersion}
-AppVerName=Recaply {#AppVersion}
-AppPublisher=Recaply
+AppVerName=Clipforge {#AppVersion}
+AppPublisher=Clipforge
 VersionInfoVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\Recaply
 DisableProgramGroupPage=yes
@@ -26,7 +26,7 @@ OutputDir=..\dist
 OutputBaseFilename=Recaply-Setup-{#AppVersion}
 SetupIconFile=recaply.ico
 UninstallDisplayIcon={app}\Recaply.exe
-UninstallDisplayName=Recaply
+UninstallDisplayName=Clipforge
 Compression=lzma2/ultra64
 SolidCompression=yes
 ; the 64-bit compressor in its own process (the built-in one runs out of memory on ~800 MB)
@@ -37,10 +37,10 @@ CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
-Name: "startup"; Description: "Start Recaply in the tray when Windows starts (for the web app)"; GroupDescription: "Web app:"; Flags: unchecked
+Name: "startup"; Description: "Start Clipforge in the tray when Windows starts (for the web app)"; GroupDescription: "Web app:"; Flags: unchecked
 
 [Registry]
-; recaply:// links: the website's "Start Recaply" button starts the app in the tray for the web app.
+; recaply:// links: the website's "Start Clipforge" button starts the app in the tray for the web app.
 Root: HKCU; Subkey: "Software\Classes\recaply"; ValueType: string; ValueName: ""; ValueData: "URL:Recaply"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\recaply"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\recaply\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Recaply.exe"",0"
@@ -51,11 +51,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Source: "..\dist\Recaply\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userprograms}\Recaply"; Filename: "{app}\Recaply.exe"
-Name: "{userdesktop}\Recaply"; Filename: "{app}\Recaply.exe"; Tasks: desktopicon
+Name: "{userprograms}\Clipforge"; Filename: "{app}\Recaply.exe"
+Name: "{userdesktop}\Clipforge"; Filename: "{app}\Recaply.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Recaply.exe"; Description: "Open Recaply"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Recaply.exe"; Description: "Open Clipforge"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
