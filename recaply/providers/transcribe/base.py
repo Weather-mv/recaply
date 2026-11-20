@@ -27,6 +27,7 @@ class Transcriber:
     """Base class. Implement `transcribe_spans`."""
 
     name = ""
+    label = "Local GPU/CPU"       # shown in the progress text
 
     @property
     def cache_id(self) -> str:

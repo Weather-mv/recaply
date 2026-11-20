@@ -39,7 +39,7 @@ from recaply.score.boundaries import snap
 from recaply.score.fusion import fuse
 from recaply.score.rerank import headline, rerank
 from recaply.score.select import select
-from recaply.score.windows import (peak_windows, sliding_windows, text_score, top_windows,
+from recaply.score.windows import (peak_windows, probe_windows, text_score, top_windows,
                                    words_between)
 from recaply.settings import settings
 from recaply.signals.audio_energy import dead_air, to_db
@@ -130,17 +130,17 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
 
     had_audio = src.kind == "file" or any(n.startswith("audio.") and not n.endswith(".part")
                                           for n in os.listdir(cache.dir))
-    progress("Fetching the audio only", 0.02)
+    progress("Downloading & Extracting Audio...", 0.02)
     with tel.stage("audio", cached=had_audio):
-        apath = audio_ingest.ensure_audio(src, cache, progress=lambda f: progress("Fetching the audio only",
+        apath = audio_ingest.ensure_audio(src, cache, progress=lambda f: progress("Downloading & Extracting Audio...",
                                                                                    0.02 + 0.2 * f))
 
-    progress("Measuring loudness", 0.22)
+    progress("Analyzing Audio Energy (Finding Hype Moments)...", 0.22)
     hit = cache.get_array("rms", {"v": 1})
     with tel.stage("loudness", cached=hit is not None):
         rms = hit if hit is not None else cache.array("rms", {"v": 1}, lambda: audio_ingest.loudness(
             apath, src.duration, workers=settings.workers,
-            progress=lambda f: progress("Measuring loudness", 0.22 + 0.1 * f)))
+            progress=lambda f: progress("Analyzing Audio Energy (Finding Hype Moments)...", 0.22 + 0.1 * f)))
     duration = float(src.duration or len(rms))
     n = len(rms)
 
@@ -172,7 +172,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
         tel.note("chat replay is switched off (RECAPLY_CHAT=0)")
 
     # ---- analyze: cheap signals over the whole video, in parallel
-    progress("Analysing signals", 0.32)
+    progress("Analyzing Audio Energy (Finding Hype Moments)...", 0.32)
     sigs: dict[str, np.ndarray] = {}
     todo = []
     for name, weight in profile.weights.items():
@@ -212,7 +212,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     k = opts.shortlist or settings.shortlist_size or (24 if profile.kind == "talk" else 16)
     transcriber = None
     try:
-        transcriber = get_transcriber(opts.transcriber)
+        transcriber = get_transcriber(opts.transcriber, note=tel.note)
     except ValueError as e:
         tel.note(f"transcription off: {e}")
     text_w = profile.weights.get("transcript", 0.0)
@@ -221,11 +221,15 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
 
     funnel = {"audio_sec": round(duration, 1), "transcribed_sec": 0.0}
 
+    seen_blocks: set[int] = set()
+
     def do_transcribe(spans, label, base, span):
         nonlocal transcriber
         if transcriber is None:
             return []
-        funnel["transcribed_sec"] = round(min(duration, len(blocks_for(spans, duration)) * BLOCK), 1)   # the 30 s blocks it needs
+        label = f"Transcribing Moments ({getattr(transcriber, 'label', 'Local GPU/CPU')})..."
+        seen_blocks.update(blocks_for(spans, duration))              # the 30 s blocks it needs, over all passes
+        funnel["transcribed_sec"] = round(min(duration, len(seen_blocks) * BLOCK), 1)
         try:
             with tel.stage("transcribe"):
                 return transcribe_cached(transcriber, apath, cache, spans, duration, vocab=vocab,
@@ -238,14 +242,40 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
             return []
 
     if profile.transcribe_all and transcriber is not None:
-        words = do_transcribe([(0.0, duration)], "Transcribing", 0.34, 0.4)
-        windows = sliding_windows(fused, profile, duration)
+        # speech-heavy video: never transcribe it all (quota!). Probe it, then go deep on the best spots.
+        progress("Extracting Top Moments...", 0.33)
+        peaks = peak_windows(fused, profile, max(3, k // 4), duration, signals=sigs)
+        pool = peaks + probe_windows(fused, profile, duration, settings.talk_probe_every, settings.talk_probe_len)
+        for w in peaks:                      # a peak is probed on the one block around it, like the even samples
+            b0 = int(w.peak // BLOCK) * BLOCK
+            w.probe = (float(b0), min(duration, b0 + BLOCK))
+        first = [w.probe for w in pool]
+        words = do_transcribe(first, "Transcribing", 0.34, 0.2)                    # pass 1: probes + peaks
+        for w in pool:
+            a, b = w.probe or (w.start, w.end)
+            w.text_score = text_score(words, profile, a, b)
+        windows = top_windows(pool, k, text_w if words else 0.0)
+        # rolling stop: with plenty of candidates, drop quiet windows whose probe has no clippable speech
+        if len(windows) > 2 * max(1, opts.count):
+            keep = [w for w in windows if w.text_score > 0.05 or w.signal_score > 0.25]
+            windows = keep if len(keep) >= opts.count else windows
+        deep, used = [], set(seen_blocks)        # best windows first, until the audio budget is spent
+        budget = settings.talk_max_share * duration
+        kept = []
         for w in windows:
-            w.text_score = text_score(words, profile, w.start, w.end)
-        windows = top_windows(windows, k, text_w if words else 0.0)
+            span = (max(0.0, w.start - 8), min(duration, w.end + 8))
+            blocks = used | set(blocks_for([span], duration))
+            if kept and len(kept) >= max(1, opts.count) and len(blocks) * BLOCK > budget:
+                continue
+            used, kept = blocks, kept + [w]
+            deep.append(span)
+        windows = kept
+        words = do_transcribe(deep, "Transcribing", 0.54, 0.2)                     # pass 2: full windows (probe blocks cached)
         for w in windows:
             w.words = words_between(words, w.start - 10, w.end + 10)
+            w.text_score = text_score(words, profile, w.start, w.end)
     else:
+        progress("Extracting Top Moments...", 0.33)
         windows = peak_windows(fused, profile, k, duration, signals=sigs)
         spans = [(max(0.0, w.start - 8), min(duration, w.end + 8)) for w in windows]
         words = do_transcribe(spans, "Transcribing the best moments", 0.34, 0.4)
@@ -273,7 +303,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     # ---- story beats: label what each shortlisted moment does (hook / setup / build / payoff ...)
     beats_by_window: list[list[dict]] = [[] for _ in windows]
     if llm is not None and settings.story_beats and scorer != "heuristic":
-        progress("Finding the story beats", 0.86)
+        progress(f"Story Beat Analysis ({llm.provider.capitalize()})...", 0.86)
         with tel.stage("beats"), ThreadPoolExecutor(1 if llm.provider == "ollama" else 3) as ex:
             beats_by_window = list(ex.map(
                 lambda ws: score_beats(words_between(ws[0].words, ws[1]["start"], ws[1]["end"]), llm, profile,

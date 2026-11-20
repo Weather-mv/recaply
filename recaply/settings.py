@@ -69,13 +69,17 @@ class Settings:
     cache_dir: str = field(default_factory=lambda: _str("RECAPLY_CACHE_DIR", os.path.join(CLIPS_DIR, "_cache")))
     jobs_db: str = field(default_factory=lambda: os.path.join(CLIPS_DIR, "_clipjobs.db"))
 
-    # transcription: faster-whisper (local) | groq | openai | none
-    transcriber: str = field(default_factory=lambda: _str("RECAPLY_TRANSCRIBER", "faster-whisper").lower())
+    # transcription: groq (default; falls back to local when there's no key or Groq keeps rate-limiting)
+    # | local (faster-whisper) | openai | none.  TRANSCRIPTION_PROVIDER is the preferred name.
+    transcriber: str = field(default_factory=lambda: (
+        _str("TRANSCRIPTION_PROVIDER") or _str("RECAPLY_TRANSCRIBER", "groq")).lower())
+    groq_parallel: int = field(default_factory=lambda: _int("RECAPLY_GROQ_PARALLEL", 6))
+    groq_retries: int = field(default_factory=lambda: _int("RECAPLY_GROQ_RETRIES", 4))   # 429 backoff: 2, 4, 8, 16 s
     whisper_model_gpu: str = field(default_factory=lambda: _str("RECAPLY_FUNNEL_MODEL_GPU", "large-v3-turbo"))
     whisper_model_cpu: str = field(default_factory=lambda: _str("RECAPLY_FUNNEL_MODEL_CPU", "small"))
     whisper_device: str = field(default_factory=lambda: _str("RECAPLY_WHISPER_DEVICE", "auto"))
     groq_api_key: str = field(default_factory=lambda: _str("GROQ_API_KEY"), repr=False)
-    groq_model: str = field(default_factory=lambda: _str("RECAPLY_GROQ_MODEL", "whisper-large-v3-turbo"))
+    groq_model: str = field(default_factory=lambda: _str("RECAPLY_GROQ_MODEL", "whisper-large-v3"))
     openai_api_key: str = field(default_factory=lambda: _str("OPENAI_API_KEY"), repr=False)
     openai_whisper_model: str = field(default_factory=lambda: _str("RECAPLY_OPENAI_WHISPER_MODEL", "whisper-1"))
 
@@ -92,6 +96,12 @@ class Settings:
     ollama_ctx: int = field(default_factory=lambda: _int("RECAPLY_OLLAMA_CTX", 8192))
     ollama_keep_alive: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_KEEP_ALIVE", "5m"))
     ollama_timeout: int = field(default_factory=lambda: _int("RECAPLY_OLLAMA_TIMEOUT", 600))
+
+    # speech-heavy videos (talks, podcasts): transcribe a `talk_probe_len` s probe every `talk_probe_every` s
+    # (default 30 s per 2 min = 25% of the audio), then only the best windows in full. Never the whole video.
+    talk_probe_every: int = field(default_factory=lambda: _int("RECAPLY_TALK_PROBE_EVERY", 120))
+    talk_max_share: float = field(default_factory=lambda: float(_str("RECAPLY_TALK_MAX_SHARE", "0.4") or 0.5))   # hard cap on audio transcribed
+    talk_probe_len: int = field(default_factory=lambda: _int("RECAPLY_TALK_PROBE_LEN", 30))
 
     # story beats: a second LLM pass labels each shortlisted moment hook/setup/build/payoff/...
     story_beats: bool = field(default_factory=lambda: _flag("RECAPLY_BEATS", True))

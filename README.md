@@ -325,7 +325,7 @@ and are masked in logs.
 
 | Setting | Options (default first) |
 |---------|-------------------------|
-| `RECAPLY_TRANSCRIBER` | `faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
+| `TRANSCRIPTION_PROVIDER` (or `RECAPLY_TRANSCRIBER`) | `groq` (default: `GROQ_API_KEY`, whisper-large-v3, parallel, 429 backoff, then local fallback), `local`/`faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
 | `RECAPLY_LLM` | `ollama` (default: local and free, `OLLAMA_URL`, `RECAPLY_OLLAMA_MODEL`; check with `python -m recaply status`), `gemini` (`GEMINI_API_KEY`), `anthropic` (`ANTHROPIC_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
 
 ### Add a content profile
