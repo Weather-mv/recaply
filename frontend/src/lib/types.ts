@@ -216,6 +216,55 @@ export interface ShortOptions {
   bgm_level: number;
 }
 
+export type LiveState = "idle" | "starting" | "waiting" | "recording" | "ended" | "stopped" | "error";
+
+/** One moment the live recorder caught (or the user clipped by hand). */
+export interface LiveClip {
+  t: number;
+  clock: string;
+  score: number;
+  signals: Record<string, number>;
+  start: number;
+  end: number;
+  job?: string;
+  error?: string;
+  manual?: boolean;
+}
+
+export interface LiveChannel {
+  name: string;
+  url: string;
+  profile: string;
+  state: LiveState;
+  note: string;
+  recording_sec: number;
+  spikes: number;
+  score: number;
+  clips: LiveClip[];
+  alive: boolean;
+  reconnects: number;
+  reconnecting: boolean;
+  buffer_mb: number;
+  buffer_limit_mb: number;
+  retention_min: number;
+  chat: { connected: boolean; messages: number; note: string } | null;
+}
+
+export interface LiveEvent {
+  id: number;
+  channel: string;
+  kind: string;
+  ts: number;
+  title?: string;
+  text?: string;
+}
+
+export interface LiveReply {
+  channels: LiveChannel[];
+  events: LiveEvent[];
+  profiles: { key: string; label: string }[];
+}
+
 export interface SettingRow {
   name: string;
   label: string;

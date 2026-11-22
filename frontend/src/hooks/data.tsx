@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "@/lib/api";
 import { isActive } from "@/lib/status";
-import type { Capabilities, Health, Job, Project, Session } from "@/lib/types";
+import type { Capabilities, Health, Job, LiveReply, Project, Session } from "@/lib/types";
 
 /** Poll `load` every `ms` (and when the tab comes back); `ms` may change with the data (faster while jobs run). */
 function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, ms: (data: T | null) => number) {
@@ -79,6 +79,11 @@ export function useProjects() {
     async (signal) => (await api<{ projects: Project[] }>("/api/studio/projects", { signal })).projects,
     (d) => (d?.some(isActive) ? 2000 : 15000),
   );
+}
+
+/** Live channels and their feed, refreshed every few seconds (404 = live mode isn't offered on this server). */
+export function useLive() {
+  return usePolling<LiveReply>((signal) => api<LiveReply>("/api/live", { signal }), (d) => (d?.channels.some((c) => c.state === "recording" || c.state === "waiting") ? 3000 : 10000));
 }
 
 export function useHealth() {

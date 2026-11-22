@@ -6,6 +6,8 @@ import os
 import socket
 import socketserver
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 
@@ -68,10 +70,28 @@ def ts_stream_cmd(duration=100, burst=(60, 64), size="320x180"):
             "-c:a", "aac", "-f", "mpegts", "pipe:1"]
 
 
+ONCE = """
+import os, subprocess, sys
+flag, cmd = sys.argv[1], sys.argv[2:]
+if os.path.exists(flag):
+    sys.exit(1)                  # a real stream that has ended is not there to reconnect to
+open(flag, "w").close()
+sys.exit(subprocess.call(cmd))
+"""
+
+
+def once(cmd):
+    """Run the synthetic feed a single time: a second attempt (the channel reconnects after a drop) finds nothing,
+    like a stream that has really ended, instead of replaying the same recording."""
+    return [sys.executable, "-c", ONCE, tempfile.mktemp(prefix="feed_"), *cmd]
+
+
 def make_cfg(**kw):
     d = {"name": "test", "url": "x", "source_cmd": ts_stream_cmd(), "segment_sec": 30, "warmup": 30, "cooldown": 10,
          "pre": 10, "post": 5, "end_grace": 10, "chat": False, "profile": "gaming"}
     d.update(kw)
+    if d["source_cmd"] and d["source_cmd"][0] == "ffmpeg":
+        d["source_cmd"] = once(d["source_cmd"])
     return config.validate(d)
 
 

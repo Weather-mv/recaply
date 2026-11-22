@@ -1,7 +1,7 @@
 # Clipforge unified plan: audit and proposed architecture
 
 Status: **approved with the recommended defaults** (2026-11-22): Vite + React, YuNet,
-fallback order Groq → Gemini → Ollama → rules. **Phases 1, 2 and 3 are built** (Phase 4, live streams, is next).
+fallback order Groq → Gemini → Ollama → rules. **Phases 1, 2, 3 and 4 are built.**
 
 Phase 3 notes: caption presets Bold & Yellow / Minimal White / Neon with bounce and stagger motion
 (`render/subtitles.py`, `editor.py`); `.ass` export (`render/ass.py`); cinematic teaser (`render/teaser.py`);
@@ -102,3 +102,8 @@ New pieces are marked **(new)** below. Everything else is existing code.
 2. Keep the **YuNet** face tracker (recommended) or add MediaPipe anyway?
 3. LLM fallback order: **Groq → Gemini → Ollama → rules** when keys exist,
    Ollama first otherwise (recommended)?
+
+Phase 4 notes: live mode already recorded and detected moments (`recaply/live/`); this phase added reconnects with
+exponential backoff (3 s doubling to 30 s), a disk cap for the rolling buffer (`max_buffer_mb`, default 4 GB, on top of
+`retention_min`), "clip the last N seconds" (`POST /api/live/channels/<name>/clip`) and a React Live page (`/studio/live`).
+Not tested against a real Twitch/Kick/YouTube stream: the recorder is exercised with a synthetic feed.

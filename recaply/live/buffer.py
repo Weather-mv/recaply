@@ -101,6 +101,36 @@ class Buffer:
                     pass
         return n
 
+    def size_bytes(self) -> int:
+        """Disk used by the segments still tracked."""
+        with self.lock:
+            paths = [s.path for s in self._segs]
+        total = 0
+        for p in paths:
+            try:
+                total += os.path.getsize(p)
+            except OSError:
+                pass
+        return total
+
+    def prune_to_size(self, limit_bytes: int, protect_from: float = float("inf")) -> int:
+        """Delete the oldest finished segments until the buffer fits `limit_bytes`, but never one that ends after
+        stream time `protect_from` (a moment still waiting to be cut) and never the newest. Returns how many."""
+        n = 0
+        while self.size_bytes() > limit_bytes:
+            with self.lock:
+                if len(self._segs) <= 1 or not self._segs[0].done or self._segs[0].end > protect_from:
+                    break
+                s = self._segs.pop(0)
+                self._origin = s.end
+                self._known.pop(s.path, None)
+            try:
+                os.remove(s.path)
+                n += 1
+            except OSError:
+                pass
+        return n
+
     def next_index(self) -> int:
         """Number for the next segment file (so a restarted recorder never overwrites)."""
         nums = []

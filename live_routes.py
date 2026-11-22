@@ -9,6 +9,7 @@ recording needs the user's own PC and disk).
   DELETE /api/live/channels/<name>          stop and remove a channel
   POST   /api/live/channels/<name>/start    start watching
   POST   /api/live/channels/<name>/stop     stop (pending moments are still cut)
+  POST   /api/live/channels/<name>/clip     clip the last N seconds now ({"seconds": 60})
 """
 
 from __future__ import annotations
@@ -145,6 +146,21 @@ def live_start(name):
     except ConfigError as e:
         return jsonify(error=str(e)), 400
     return jsonify(ok=True)
+
+
+@bp.route("/api/live/channels/<name>/clip", methods=["POST"])
+def live_clip_now(name):
+    """Clip the last N seconds of a recording channel right now (default 60)."""
+    name = _guard(_name(name))
+    try:
+        seconds = float((request.get_json(silent=True) or {}).get("seconds", 60))
+    except (TypeError, ValueError):
+        return jsonify(error="seconds must be a number."), 400
+    try:
+        info = get_manager().clip_now(name, seconds)
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 409
+    return jsonify(ok=True, clip={k: v for k, v in info.items() if k != "file"})
 
 
 @bp.route("/api/live/channels/<name>/stop", methods=["POST"])

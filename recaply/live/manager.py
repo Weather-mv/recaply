@@ -51,6 +51,12 @@ class LiveManager:
             w.join(wait)
         return True
 
+    def clip_now(self, name: str, seconds: float) -> dict:
+        w = self.workers.get(name)
+        if not w or not w.is_alive():
+            raise RuntimeError("This channel isn't being watched right now.")
+        return w.clip_now(seconds)
+
     def stop_all(self, wait: float = 20) -> None:
         for n in list(self.workers):
             self.stop(n)
@@ -62,6 +68,8 @@ class LiveManager:
         for n, c in config.load_all().items():          # saved but not started: show as idle
             out.setdefault(n, {"name": n, "state": "idle", "note": "", "url": c.url, "profile": c.profile,
                                "recording_sec": 0, "spikes": 0, "clips": [], "score": 0, "chat": None,
+                               "reconnects": 0, "reconnecting": False, "buffer_mb": 0.0,
+                               "buffer_limit_mb": c.max_buffer_mb, "retention_min": c.retention_min,
                                "started": None, "alive": False})
         return sorted(out.values(), key=lambda s: s["name"])
 

@@ -125,7 +125,12 @@ def create_project():
                 live_routes.watch_link(text, opts.get("profile") or "gaming")
             except Exception as e:  # noqa: BLE001 — shown to the user as is
                 return jsonify({"error": f"Couldn't start live clipping: {e}"}), 400
-            return jsonify({"live": True, "redirect": "/live"})
+            return jsonify({"live": True, "redirect": "/studio/live"})
+        if body.get("live_only"):                    # the Live page: never start a normal project from a link that isn't live
+            return jsonify({"error": "That link isn't live right now. Paste it on the Projects page to clip it as a video, "
+                                     "or use a channel link (twitch.tv/name, kick.com/name) to wait for it to go live."}), 400
+    elif body.get("live_only"):
+        return jsonify({"error": "Paste a live link."}), 400
     elif not DESKTOP:
         return jsonify({"error": "Paste a link, or upload the file."}), 400
     elif not (os.path.isfile(text) and text.lower().endswith(MEDIA_EXTS)):
