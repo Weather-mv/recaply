@@ -433,11 +433,12 @@ def cmd_worker(args) -> int:
 
 def cmd_status(args) -> int:
     from recaply.jobs.queue import queue_info
-    from recaply.providers.llm import ollama_status
+    from recaply.providers.llm import ai_status, ollama_status
     from recaply.settings import settings
     st = ollama_status()
-    print(f"LLM provider : {settings.llm_provider}")
-    if settings.llm_provider == "ollama":
+    ai = ai_status()
+    print(f"LLM provider : {settings.llm_provider} | order: {' -> '.join(ai['order'] + ['rules']) }")
+    if settings.llm_provider in ("ollama", "auto"):
         print(f"Ollama       : {'running' if st['running'] else 'NOT running'}"
               f" | model {st['model']} {'ready' if st['model_ready'] else 'missing'}")
         if st["hint"]:

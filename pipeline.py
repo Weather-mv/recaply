@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -37,34 +38,97 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 COOKIES_FILE = os.environ.get("RECAPLY_COOKIES") or os.path.join(BASE_DIR, "cookies.txt")
 
 
-_cookies = {"mtime": None, "path": None}
+_cookies = {"mtime": None, "dir": None, "text": None, "problem": ""}
 _cookies_lock = threading.Lock()
+COOKIE_COPY_MAX_AGE = 6 * 3600       # per-call copies older than this are removed (a long download keeps its own)
+NETSCAPE_HEADER = "# Netscape HTTP Cookie File"
+COOKIES_HOWTO = ("Export it again with the \"Get cookies.txt LOCALLY\" browser extension (on youtube.com, "
+                 "logged in) and replace cookies.txt. Until then Clipforge works without cookies.")
 
 
 def cookie_copy():
     """
-    A private working copy of the user's cookies.txt for yt-dlp. yt-dlp
-    writes cookies back to its cookie file after every request, and with
-    several requests at once (plus YouTube rotating the session) that can
-    strip the login cookies, so it never gets the user's own file. The copy
-    is refreshed whenever the user replaces cookies.txt.
+    A private working copy of the user's cookies.txt for one yt-dlp call.
+    yt-dlp writes cookies back to its cookie file when it finishes (and
+    YouTube rotates the session), which could strip the login cookies, so it
+    never gets the user's own file. Every call gets its OWN copy: with one
+    shared copy, a call saving its cookies (truncate, then write) while
+    another was loading them made yt-dlp fail with "does not look like a
+    Netscape format cookies file" (seen with chat replay + audio download
+    running side by side).
+
+    A file yt-dlp would reject is not passed on at all: yt-dlp runs without
+    cookies and `cookie_problem()` says what to fix.
     """
     try:
         mtime = os.path.getmtime(COOKIES_FILE)
     except OSError:
+        _cookies["problem"] = ""
         return None
     with _cookies_lock:
-        if _cookies["mtime"] != mtime or not (_cookies["path"] and os.path.exists(_cookies["path"])):
-            if not _cookies["path"]:
-                # mkdtemp is private to this user (it holds a login).
-                _cookies["path"] = os.path.join(tempfile.mkdtemp(prefix="recaply_"), "cookies.txt")
-                atexit.register(shutil.rmtree, os.path.dirname(_cookies["path"]), True)
-            with open(COOKIES_FILE, encoding="utf-8-sig", errors="replace") as f:
-                text = f.read()
-            with open(_cookies["path"], "w", encoding="utf-8") as f:
-                f.write(_as_netscape(text))
+        if _cookies["mtime"] != mtime:
+            try:
+                with open(COOKIES_FILE, encoding="utf-8-sig", errors="replace") as f:
+                    text = f.read()
+                clean, problem = netscape_cookies(_as_netscape(text))
+            except (OSError, ValueError, AttributeError, TypeError) as e:
+                clean, problem = None, f"cookies.txt couldn't be read ({str(e)[:80]})."
+            _cookies["text"] = clean
+            _cookies["problem"] = f"{problem} {COOKIES_HOWTO}" if problem else ""
             _cookies["mtime"] = mtime
-        return _cookies["path"]
+        if _cookies["text"] is None:
+            return None
+        if not (_cookies["dir"] and os.path.isdir(_cookies["dir"])):
+            _cookies["dir"] = tempfile.mkdtemp(prefix="recaply_")      # private to this user (it holds a login)
+            atexit.register(shutil.rmtree, _cookies["dir"], True)
+        folder = _cookies["dir"]
+        now = time.time()
+        for name in os.listdir(folder):
+            p = os.path.join(folder, name)
+            try:
+                if now - os.path.getmtime(p) > COOKIE_COPY_MAX_AGE:
+                    os.remove(p)
+            except OSError:
+                pass
+        fd, path = tempfile.mkstemp(prefix="cookies_", suffix=".txt", dir=folder)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(_cookies["text"])
+        return path
+
+
+def cookie_problem():
+    """Why cookies.txt is being ignored ("" when it's fine or there is none). Shown in the job's notes."""
+    path = cookie_copy()                     # (re)reads cookies.txt when it changed
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return _cookies["problem"]
+
+
+def netscape_cookies(text):
+    """
+    (clean Netscape text, None) or (None, why not). Keeps the 7-field cookie
+    lines (tab-separated; space-separated ones are repaired) including
+    `#HttpOnly_` lines, and always writes the header line yt-dlp insists on.
+    """
+    good, bad = [], 0
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s or (s.startswith("#") and not s.startswith("#HttpOnly_")):
+            continue
+        parts = s.split("\t")
+        if len(parts) != 7:
+            parts = s.split(None, 6)
+        if len(parts) == 7 and parts[4].lstrip("-").isdigit() and parts[0]:
+            good.append("\t".join(parts))
+        else:
+            bad += 1
+    if not good:
+        what = "has no cookie lines" if not bad else f"isn't in the Netscape cookies.txt format ({bad} unreadable lines)"
+        return None, f"Your cookies.txt {what}, so it's being ignored."
+    return NETSCAPE_HEADER + "\n" + "\n".join(good) + "\n", None
 
 
 def _as_netscape(text):

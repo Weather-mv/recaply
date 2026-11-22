@@ -14,6 +14,7 @@ from typing import Callable
 from recaply.engine import Options, analyze, cut_clips, edit_clip, render_shorts
 from recaply.ingest.sources import InputError
 from recaply.jobs import store
+from recaply.jobs.stages import LABELS, StageTracker
 from recaply.log import get_logger
 from recaply.settings import settings
 from recaply.telemetry import Telemetry
@@ -72,27 +73,68 @@ def run_task(job_id: str, task: str = "analyze") -> None:
         raise ValueError(f"unknown task {task}")
 
 
+class _TrackedTelemetry(Telemetry):
+    """Telemetry whose notes also go to the job log, tagged with the stage they happened in."""
+
+    def __init__(self, tracker: StageTracker):
+        super().__init__()
+        self.tracker = tracker
+
+    def note(self, text: str) -> None:
+        super().note(text)
+        self.tracker.add("warning", text)
+
+
 def _analyze(job: dict) -> None:
     jid = job["id"]
     last = [0.0, ""]
+    tracker = StageTracker()                                  # a (re)started analysis starts its stepper afresh
 
     def progress(stage: str, frac: float):
         now = time.time()
-        if stage != last[1] or now - last[0] > 0.4 or frac >= 1.0:
+        changed = tracker.progress(stage, frac)
+        if changed or stage != last[1] or now - last[0] > 0.4 or frac >= 1.0:
             last[0], last[1] = now, stage
-            store.update(jid, stage=stage, progress=round(float(frac), 3))
+            store.update(jid, stage=stage, progress=round(float(frac), 3), stages=tracker.stages, log=tracker.log)
 
-    store.update(jid, state="running", task="analyze", stage="Starting", progress=0.0, error=None)
-    tel = Telemetry()
+    tracker.start("download", "Starting")
+    tracker.add("info", "Job started")
+    store.update(jid, state="running", task="analyze", stage="Starting", progress=0.0, error=None,
+                 stages=tracker.stages, log=tracker.log)
+    tel = _TrackedTelemetry(tracker)
     try:
         opts = Options(**{k: v for k, v in (job.get("options") or {}).items() if k in Options.__dataclass_fields__})
         result = analyze(job["input"], opts, progress=progress, telemetry=tel)
+        tracker.finish()
+        tracker.add("info", f"Found {len(result['clips'])} clips (scored by {result.get('scorer')})")
         store.update(jid, state="ready", stage="Done", progress=1.0, result=result,
-                     title=result["source"]["title"], summary=result["summary"])
+                     title=result["source"]["title"], summary=result["summary"], stages=tracker.stages, log=tracker.log)
         log.info("job ready", job=jid, clips=len(result["clips"]), sec=result["summary"]["total_sec"])
     except Exception as e:  # noqa: BLE001
         log.error("job failed", job=jid, error=str(e)[:300])
-        store.update(jid, state="failed", stage="Failed", error=_friendly(e), summary=tel.summary())
+        msg = _friendly(e)
+        where = tracker.fail(msg)
+        store.update(jid, state="failed", stage=f"Failed while {LABELS[where].lower()}", error=msg,
+                     summary=tel.summary(), stages=tracker.stages, log=tracker.log)
+
+
+def _render_start(job: dict, label: str) -> StageTracker:
+    """The job's stepper with its render stage running (cut / shorts / edit tasks)."""
+    tracker = StageTracker.from_job(job)
+    tracker.stages["render"].update(state="pending", progress=0.0, error=None, finished=None)
+    tracker.start("render", label)
+    tracker.add("info", label)
+    return tracker
+
+
+def _render_end(jid: str, tracker: StageTracker, failed: int, total: int, error: str | None) -> None:
+    if failed and failed >= total:
+        tracker.fail(error or "Nothing was rendered.", "render")
+    else:
+        if failed:
+            tracker.add("warning", f"{failed} of {total} failed: {error or ''}", "render")
+        tracker.finish(("render",))
+    store.update(jid, stages=tracker.stages, log=tracker.log)
 
 
 def _cut(job: dict) -> None:
@@ -102,12 +144,15 @@ def _cut(job: dict) -> None:
     quality = args.get("quality", "1080")
     result = job.get("result") or {}
     store.update(jid, state="running", task="cut", stage=f"Cutting {len(ids)} clips", progress=0.0)
+    tracker = _render_start(job, f"Cutting {len(ids)} clips")
+    store.update(jid, stages=tracker.stages, log=tracker.log)
     done = [0]
 
     def progress(cid: int, state: str, frac: float):
         if state in ("done", "failed"):
             done[0] += 1
-            store.update(jid, progress=round(done[0] / max(1, len(ids)), 3))
+            tracker.set_progress("render", done[0] / max(1, len(ids)))
+            store.update(jid, progress=round(done[0] / max(1, len(ids)), 3), stages=tracker.stages)
         elif frac == 0.0 or frac >= 1.0:
             store.set_cut(jid, cid, {"state": "cutting"})
 
@@ -129,6 +174,7 @@ def _cut(job: dict) -> None:
             refund([f"clip:{jid}:{i}" for i in failed])
         except Exception:  # noqa: BLE001
             pass
+    _render_end(jid, tracker, len(failed), len(ids), next((out[i]["error"] for i in failed), None))
     summary = (job.get("summary") or {})
     summary = {**summary, "cut": tel.summary()["stages"]}
     store.update(jid, state="ready", stage="Done" if not failed else f"{len(failed)} clips failed",
@@ -153,6 +199,9 @@ def _edit(job: dict) -> None:
     cuts = job.get("cuts") or {}
     store.update(jid, state="running", task="edit", stage="Editing the clip", progress=0.1)
     store.set_cut(jid, edit_key(cid), {"state": "rendering", "error": None})
+    tracker = _render_start(job, f"Editing clip {cid}")
+    store.update(jid, stages=tracker.stages, log=tracker.log)
+    err = None
     tel = Telemetry()
     try:
         info = edit_clip(result, cid, [int(i) for i in args.get("deleted", [])], job_dir(jid),
@@ -169,8 +218,10 @@ def _edit(job: dict) -> None:
         stage = "Done"
     except Exception as e:  # noqa: BLE001
         log.error("edit failed", job=jid, clip=cid, error=str(e)[:300])
-        store.set_cut(jid, edit_key(cid), {"state": "failed", "error": _friendly(e)})
+        err = _friendly(e)
+        store.set_cut(jid, edit_key(cid), {"state": "failed", "error": err})
         stage = "The edit failed"
+    _render_end(jid, tracker, 1 if err else 0, 1, err)
     summary = merge_summary(job.get("summary"), tel, "edit")
     store.update(jid, state="ready", stage=stage, progress=1.0, summary=summary)
 
@@ -187,13 +238,16 @@ def _shorts(job: dict) -> None:
     result = job.get("result") or {}
     cuts = job.get("cuts") or {}
     store.update(jid, state="running", task="shorts", stage=f"Rendering {len(ids)} shorts", progress=0.0)
+    tracker = _render_start(job, f"Rendering {len(ids)} shorts")
+    store.update(jid, stages=tracker.stages, log=tracker.log)
     stage = {}
     finished = [0]
 
     def progress(cid: int, label: str, frac: float):
         if frac >= 1.0:
             finished[0] += 1
-            store.update(jid, progress=round(finished[0] / max(1, len(ids)), 3))
+            tracker.set_progress("render", finished[0] / max(1, len(ids)))
+            store.update(jid, progress=round(finished[0] / max(1, len(ids)), 3), stages=tracker.stages)
             return
         if stage.get(cid) != label:
             stage[cid] = label
@@ -235,6 +289,7 @@ def _shorts(job: dict) -> None:
                 p = os.path.join(job_dir(jid), info["cut_file"])
                 size = round(os.path.getsize(p) / 1e6, 1) if os.path.exists(p) else 0
                 store.set_cut(jid, cid, {"state": "done", "file": info["cut_file"], "quality": "1080", "size_mb": size})
+    _render_end(jid, tracker, len(failed), len(ids), next(((out.get(i) or {}).get("error") for i in failed), None))
     refund = REFUNDS.pop(jid, None)
     unpaid = [i for i in failed if i not in cut_files]          # a clip already cut stays paid for
     if unpaid and refund:

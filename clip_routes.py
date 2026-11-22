@@ -32,11 +32,11 @@ from flask import Blueprint, Response, abort, flash, jsonify, redirect, render_t
 from common import allowed_url
 from config import DESKTOP, env_int
 from recaply.ingest.sources import MEDIA_EXTS, looks_like_url
-from recaply.jobs import runner, store
+from recaply.jobs import runner, stages, store
 from recaply.jobs.queue import get_queue, queue_info
 from recaply.jobs.runner import job_dir
 from recaply.profiles import all_profiles
-from recaply.providers.llm import ollama_status
+from recaply.providers.llm import ai_status
 from recaply.settings import settings
 from recaply.render import brand as brandkit
 from recaply.render import presets, reframe, subtitles
@@ -123,7 +123,7 @@ def view(job: dict) -> dict:
         "error": job.get("error"), "created": job["created"], "result": result or None,
         "cuts": job.get("cuts") or {}, "summary": job.get("summary") or {},
         "options": job.get("options") or {}, "version": job["version"],
-        "media": _media_flags(job),
+        "media": _media_flags(job), **stages.public(job),
     }
 
 
@@ -198,8 +198,8 @@ def clips_upload():
 @bp.route("/api/clips/health")
 def clips_health():
     """Is the local AI ready and is the job queue up? (the dashboard shows the hint when not)"""
-    ai = ollama_status() if settings.llm_provider == "ollama" else {"running": True, "model_ready": True, "hint": ""}
-    return jsonify({"llm": settings.llm_provider, "ollama": ai, "queue": queue_info()})
+    st = ai_status()                 # "llm" is the provider that will be asked first; "order" the whole fallback chain
+    return jsonify({"llm": st["provider"], "llm_order": st["order"], "ollama": st["ollama"], "queue": queue_info()})
 
 
 @bp.route("/clipjob/<job_id>")

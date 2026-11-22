@@ -21,7 +21,9 @@ from recaply.settings import settings
 
 STATES = ("queued", "running", "ready", "failed", "cancelled")
 _lock = threading.Lock()
-_JSON = ("options", "result", "cuts", "summary")
+_JSON = ("options", "result", "cuts", "summary", "stages", "log")
+# columns added after the first release: (name, type), created on start-up when missing
+_ADDED = (("stages", "text"), ("log", "text"))
 
 SCHEMA = """
 create table if not exists clip_jobs (
@@ -59,6 +61,10 @@ def init(path: str | None = None) -> None:
     with _lock, _db(path) as con:
         con.execute("pragma journal_mode=wal")
         con.executescript(SCHEMA)
+        have = {r["name"] for r in con.execute("pragma table_info(clip_jobs)")}
+        for name, kind in _ADDED:
+            if name not in have:
+                con.execute(f"alter table clip_jobs add column {name} {kind}")
 
 
 def _row(r: sqlite3.Row | None) -> dict | None:

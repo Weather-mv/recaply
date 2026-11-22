@@ -18,6 +18,7 @@ from typing import Callable
 import numpy as np
 
 from recaply.providers.transcribe.base import Transcriber
+from recaply.providers.transcribe.guard import drop_hallucinations, suspect_segment
 from recaply.settings import settings
 
 SR = 16000
@@ -102,6 +103,8 @@ class LocalWhisper(Transcriber):
                     for seg in segs:
                         if progress:
                             progress(min(1.0, (done_sec + seg.end) / total))
+                        if suspect_segment(seg):          # invented on music / noise / silence: skip it
+                            continue
                         for w in seg.words or []:
                             text = w.word.strip()
                             if not text:
@@ -116,7 +119,7 @@ class LocalWhisper(Transcriber):
                                     break
                     done_sec += sum(spans[i][1] - spans[i][0] for i in group)
                     del audio, pieces
-                return out
+                return [drop_hallucinations(ws) for ws in out]
             finally:
                 del model
                 gc.collect()

@@ -15,6 +15,7 @@ from typing import Callable
 
 from recaply.cache import StageCache
 from recaply.log import get_logger
+from recaply.providers.transcribe.guard import drop_hallucinations
 from recaply.telemetry import Telemetry
 
 log = get_logger("transcribe")
@@ -86,6 +87,12 @@ def transcribe_cached(provider: Transcriber, audio_path: str, cache: StageCache,
         telemetry.note(f"transcription: all {len(ks)} blocks from cache")
     words = [w for k in sorted(have) for w in have[k]]
     words.sort(key=lambda w: w["s"])
+    # every provider (and blocks cached before the guard existed): no invented repetition loops
+    n_raw = len(words)
+    words = drop_hallucinations(words)
+    if telemetry and len(words) < n_raw:
+        telemetry.note(f"transcription: dropped {n_raw - len(words)} words that looked invented "
+                       "(repeated or very low confidence, usually music or game sound)")
     for a, b in zip(words, words[1:]):           # keep them non-overlapping
         if b["s"] < a["e"]:
             a["e"] = max(a["s"] + 0.04, b["s"])

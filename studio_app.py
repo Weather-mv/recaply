@@ -8,6 +8,7 @@ studio_app.py: the glue for the React "AI Studio" (frontend/, built into static/
   GET  /api/clipjob/<id>/media/<source|audio>  the video the clips came from (uploads and local files) or the
                                                audio the analysis used (links), for the preview player
   GET  /api/studio/capabilities                what a clip can be exported as (presets, layouts, captions)
+  GET  /api/clipjob/<id>/log                   stage stepper, error, job log and pipeline notes
 
 Everything else the studio does uses the clip finder's existing API (clip_routes.py, studio_routes.py).
 """
@@ -23,10 +24,11 @@ import clip_routes
 from common import allowed_url
 from config import BASE_DIR, DESKTOP
 from recaply.ingest.sources import MEDIA_EXTS, looks_like_url
+from recaply.jobs import stages as job_stages
 from recaply.jobs import store
 from recaply.jobs.runner import job_dir
 from recaply.profiles import all_profiles
-from recaply.providers.llm import ollama_status
+from recaply.providers.llm import ai_status, ollama_status  # noqa: F401  (ollama_status: kept for callers)
 from recaply.settings import settings
 
 if DESKTOP:
@@ -63,7 +65,7 @@ def session_info():
         "user": {"name": user.get("name") or (user.get("email") or "").split("@")[0], "email": user.get("email")},
         "plan": {"name": ent.get("name"), "left": ent.get("left"), "limit": ent.get("limit"),
                  "can_create": bool(ent.get("can_create", True)), "reason": ent.get("reason")},
-        "llm": settings.llm_provider,
+        "llm": ai_status()["provider"],
         "profiles": [{"key": p.key, "label": p.label, "kind": p.kind, "hidden": p.hidden} for p in all_profiles()],
     })
 
@@ -89,6 +91,7 @@ def _project(job: dict) -> dict:
         "duration": (result.get("source") or {}).get("duration"),
         "thumb": (result.get("source") or {}).get("video_id"),
         "extractor": (result.get("source") or {}).get("extractor"),
+        "scorer": result.get("scorer"), **job_stages.public(job),
     }
 
 
@@ -128,6 +131,16 @@ def create_project():
         return jsonify({"error": "That file wasn't found, or isn't a video."}), 400
     jid = clip_routes._start(text, opts, title="" if looks_like_url(text) else os.path.basename(text))
     return jsonify({"id": jid})
+
+
+@bp.route("/api/clipjob/<job_id>/log")
+def job_log(job_id):
+    """Where a job is or where it failed: the stage stepper, the error, the job log and the pipeline's notes."""
+    job = clip_routes._owned(job_id)
+    return jsonify({"id": job["id"], "state": job["state"], "stage": job.get("stage") or "",
+                    "error": job.get("error"), **job_stages.public(job),
+                    "log": job.get("log") if isinstance(job.get("log"), list) else [],
+                    "notes": (job.get("summary") or {}).get("notes") or []})
 
 
 # ---------- media for the preview player ----------

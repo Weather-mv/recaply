@@ -31,7 +31,7 @@ from recaply.ingest.sources import InputError, Source, resolve
 from recaply.log import get_logger
 from recaply.profiles import cues as cues_mod
 from recaply.profiles import detect_profile, get_profile
-from recaply.providers.llm import get_llm, ollama_status
+from recaply.providers.llm import llm_chain
 from recaply.providers.transcribe import get_transcriber, transcribe_cached
 from recaply.providers.transcribe.base import BLOCK, blocks_for
 from recaply.score.beats import beat_score, clip_beats, score_beats
@@ -118,6 +118,10 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     if profile.segmenter:
         raise InputError(f"The '{profile.label}' profile runs in rounds mode in the app.")
     cache = StageCache(src.key)
+    if src.kind == "url":
+        from pipeline import cookie_problem
+        if cookie_problem():
+            tel.note(cookie_problem())
     log.info("analyze", source=src.key, title=src.title[:60], profile=profile.key, duration=round(src.duration))
 
     # chat replay is fetched in the background while the audio comes down
@@ -288,14 +292,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
                          for name, v in sigs.items() if len(v[int(w.start):int(w.end) + 1])}
 
     # ---- score: LLM re-rank of the shortlist
-    llm = get_llm(opts.llm)
-    if llm is not None and llm.provider == "ollama":
-        st = ollama_status(settings.ollama_url, llm.model)
-        if not (st["running"] and st["model_ready"]):
-            tel.note(f"local AI not ready: {st['hint']} Scored by rules instead.")
-            llm = None
-    if llm is None:
-        tel.note(f"no LLM configured ({opts.llm or settings.llm_provider}); heuristic scores")
+    llm = llm_chain(opts.llm, note=tel.note)       # every usable provider in fallback order, or None (rules)
     progress("Scoring with AI" if llm else "Scoring", 0.76)
     with tel.stage("score"):
         suggestions, scorer = rerank(windows, profile, src.title, llm, tel)
@@ -325,7 +322,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
             sug["description"] = sug.get("description") or sug["title"]
         clips.append({
             "id": i, "start": s, "end": e, "duration": round(e - s, 2), "time": fmt_hms(s),
-            "score": sug["score"], "llm_score": sug.get("llm_score"),
+            "score": sug["score"], "llm_score": sug.get("llm_score"), "virality": sug.get("virality"),
             "signal_score": round(100 * w.signal_score, 1), "text_score": round(100 * w.text_score, 1),
             "reason": sug["reason"], "title": sug["title"], "hook": sug["hook"],
             "description": sug.get("description") or "", "hashtags": sug.get("hashtags") or [],

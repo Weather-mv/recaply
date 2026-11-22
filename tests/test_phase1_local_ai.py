@@ -252,7 +252,7 @@ def test_analyze_adds_story_beats_and_survives_a_dead_beat_model(monkeypatch):
                                "virality_score": 100, "reasoning": "big"}]}, Usage("fake", "f", 10, 2)
 
     llm = FakeLocalLLM()
-    monkeypatch.setattr(engine, "get_llm", lambda name=None, note=None: llm)
+    monkeypatch.setattr(engine, "llm_chain", lambda name=None, note=None: llm)
     monkeypatch.setattr(engine, "get_transcriber", lambda name=None, note=None: FakeTranscriber())
     bursts = f"{FIXTURES}/bursts.mp4"
     opts = engine.Options(profile="gaming", count=3, min_len=12, max_len=25)
@@ -265,7 +265,7 @@ def test_analyze_adds_story_beats_and_survives_a_dead_beat_model(monkeypatch):
     plain = {c["id"]: c for c in engine.analyze(bursts, opts)["clips"]}[top["id"]]
     monkeypatch.undo()                                      # (re-applied below) beats off: no labels, no nudge
     assert plain["beats"] == [] and top["score"] == round(0.8 * plain["score"] + 0.2 * top["beat_score"], 1)
-    monkeypatch.setattr(engine, "get_llm", lambda name=None, note=None: llm)
+    monkeypatch.setattr(engine, "llm_chain", lambda name=None, note=None: llm)
     monkeypatch.setattr(engine, "get_transcriber", lambda name=None, note=None: FakeTranscriber())
     assert all(b["start"] >= top["start"] - 0.01 and b["end"] <= top["end"] + 0.01 for b in top["beats"])
     assert "beats" in res["summary"]["stages"]

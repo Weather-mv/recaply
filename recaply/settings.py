@@ -47,12 +47,14 @@ class Prices:
         "gemini": _float("RECAPLY_PRICE_GEMINI_IN", 0.30),
         "anthropic": _float("RECAPLY_PRICE_ANTHROPIC_IN", 1.00),
         "openai": _float("RECAPLY_PRICE_OPENAI_IN", 0.25),
+        "groq": _float("RECAPLY_PRICE_GROQ_IN", 0.59),
         "ollama": 0.0,
     })
     llm_out: dict = field(default_factory=lambda: {
         "gemini": _float("RECAPLY_PRICE_GEMINI_OUT", 2.50),
         "anthropic": _float("RECAPLY_PRICE_ANTHROPIC_OUT", 5.00),
         "openai": _float("RECAPLY_PRICE_OPENAI_OUT", 2.00),
+        "groq": _float("RECAPLY_PRICE_GROQ_OUT", 0.79),
         "ollama": 0.0,
     })
     audio_hour: dict = field(default_factory=lambda: {
@@ -83,8 +85,12 @@ class Settings:
     openai_api_key: str = field(default_factory=lambda: _str("OPENAI_API_KEY"), repr=False)
     openai_whisper_model: str = field(default_factory=lambda: _str("RECAPLY_OPENAI_WHISPER_MODEL", "whisper-1"))
 
-    # LLM scoring and copy: ollama (local, free; default) | gemini | anthropic | openai | none
-    llm_provider: str = field(default_factory=lambda: _str("RECAPLY_LLM", "ollama").lower())
+    # LLM scoring and copy: auto (default) | groq | gemini | anthropic | openai | ollama | none.
+    # Every usable provider is tried in turn (recaply.providers.llm.LLMChain); a named one goes first.
+    # auto order: Groq -> Gemini -> Claude -> OpenAI (with a key) -> Ollama (when running) -> rules.
+    llm_provider: str = field(default_factory=lambda: _str("RECAPLY_LLM", "auto").lower())
+    llm_order: str = field(default_factory=lambda: _str("RECAPLY_LLM_ORDER"))       # e.g. "ollama,groq"
+    groq_llm_model: str = field(default_factory=lambda: _str("RECAPLY_GROQ_LLM_MODEL", "llama-3.3-70b-versatile"))
     gemini_api_key: str = field(default_factory=lambda: _str("GEMINI_API_KEY") or _str("GOOGLE_API_KEY"), repr=False)
     gemini_model: str = field(default_factory=lambda: _str("RECAPLY_GEMINI_MODEL", "gemini-flash-latest"))
     anthropic_api_key: str = field(default_factory=lambda: _str("ANTHROPIC_API_KEY"), repr=False)
@@ -130,7 +136,9 @@ class Settings:
     def llm_ready(self) -> bool:
         """True when the configured LLM provider can be called."""
         p = self.llm_provider
-        return ((p == "gemini" and bool(self.gemini_api_key))
+        return (p == "auto"
+                or (p == "groq" and bool(self.groq_api_key))
+                or (p == "gemini" and bool(self.gemini_api_key))
                 or (p == "anthropic" and bool(self.anthropic_api_key))
                 or (p == "openai" and bool(self.openai_api_key))
                 or p == "ollama")

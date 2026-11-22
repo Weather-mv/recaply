@@ -147,10 +147,13 @@ def transcribe(path, start=0.0, end=None, quality="best", language=None, vocab="
                 condition_on_previous_text=False, hotwords=hot[:900],
                 initial_prompt="Hello, welcome back! Okay, let's go. Wait, what? That's insane.",
                 no_speech_threshold=0.6, compression_ratio_threshold=2.4)
+            from recaply.providers.transcribe.guard import drop_hallucinations, suspect_segment
             words = []
             for seg in segments:
                 if progress:
                     progress("Transcribing", min(1.0, seg.end / total))
+                if suspect_segment(seg):              # invented on music / noise: no captions for it
+                    continue
                 for w in seg.words or []:
                     text = w.word.strip()
                     if not text:
@@ -159,6 +162,7 @@ def transcribe(path, start=0.0, end=None, quality="best", language=None, vocab="
                     e = min(e, s + max(0.25, 0.09 * len(text) + 0.35))   # a word before a pause
                     words.append({"w": text, "s": round(start + s, 3), "e": round(start + max(e, s + 0.06), 3),
                                   "p": round(float(w.probability), 3)})
+            words = drop_hallucinations(words)
             # keep words in order and non-overlapping
             for a, b in zip(words, words[1:]):
                 if b["s"] < a["e"]:

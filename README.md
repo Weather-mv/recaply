@@ -326,7 +326,7 @@ and are masked in logs.
 | Setting | Options (default first) |
 |---------|-------------------------|
 | `TRANSCRIPTION_PROVIDER` (or `RECAPLY_TRANSCRIBER`) | `groq` (default: `GROQ_API_KEY`, whisper-large-v3, parallel, 429 backoff, then local fallback), `local`/`faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
-| `RECAPLY_LLM` | `ollama` (default: local and free, `OLLAMA_URL`, `RECAPLY_OLLAMA_MODEL`; check with `python -m recaply status`), `gemini` (`GEMINI_API_KEY`), `anthropic` (`ANTHROPIC_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
+| `RECAPLY_LLM` | `auto` (default: every usable provider in turn, Groq → Gemini → Claude → OpenAI → Ollama → rules), `groq` (`GROQ_API_KEY`, `RECAPLY_GROQ_LLM_MODEL`), `gemini` (`GEMINI_API_KEY`), `anthropic` (`ANTHROPIC_API_KEY`), `openai` (`OPENAI_API_KEY`), `ollama` (local and free, `OLLAMA_URL`, `RECAPLY_OLLAMA_MODEL`), `none`. A named provider goes first and the others stay as fallbacks; `RECAPLY_LLM_ORDER` sets the whole order. Check with `python -m recaply status` |
 
 ### Add a content profile
 
