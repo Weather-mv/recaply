@@ -1,6 +1,7 @@
 import { cn, fmtTime } from "@/lib/utils";
 import type { Clip } from "@/lib/types";
 import { BeatBar, ScoreDot } from "./BeatsPanel";
+import { ViralityBars } from "./ViralityBars";
 
 export function ClipsPanel({ clips, selected, onSelect }: { clips: Clip[]; selected: number; onSelect: (id: number) => void }) {
   if (!clips.length) return <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No clips were found in this video.</p>;
@@ -23,6 +24,7 @@ export function ClipsPanel({ clips, selected, onSelect }: { clips: Clip[]; selec
               </span>
               <ScoreDot score={c.score} />
             </span>
+            {c.virality && <ViralityBars v={c.virality} compact className="mt-2.5" />}
             {c.beats.length > 0 && <BeatBar clip={c} className="mt-2.5" />}
             {c.reason && <span className="mt-2 line-clamp-2 block text-sm text-muted-foreground">{c.reason}</span>}
             <span className="sr-only">{fmtTime(c.start)}</span>

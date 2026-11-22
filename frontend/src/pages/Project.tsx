@@ -1,19 +1,20 @@
-import { AlertCircle, ArrowLeft, Cpu, Info, Layers, Loader2, RefreshCw, Rows3, Wand2 } from "lucide-react";
+import { ArrowLeft, Cpu, Info, Layers, Loader2, Rows3, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { BeatsPanel, ScoreDot } from "@/components/project/BeatsPanel";
 import { ClipsPanel } from "@/components/project/ClipsPanel";
+import { FailurePanel, PipelineStepper } from "@/components/project/PipelineStepper";
+import { ClipCopy, ViralityBars } from "@/components/project/ViralityBars";
 import { VideoStage } from "@/components/project/VideoStage";
 import { Block, Timeline, Track } from "@/components/Timeline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useJob } from "@/hooks/data";
 import { pickMedia, usePlayer, usePlayerKeys } from "@/hooks/usePlayer";
-import { api, ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { BEAT_META, beatAt } from "@/lib/beats";
 import type { Beat, Job } from "@/lib/types";
 import { cn, fmtTime } from "@/lib/utils";
@@ -24,7 +25,7 @@ function Working({ job }: { job: Job }) {
     <Card className="mx-auto mt-10 max-w-xl space-y-4 p-8 text-center">
       <Loader2 className="mx-auto size-10 animate-spin text-primary" />
       <h2 className="text-xl font-bold">{detecting ? "Detecting content type…" : job.state === "queued" ? "Waiting for a free slot…" : "Finding the best moments…"}</h2>
-      <Progress value={job.progress} indeterminate={job.progress < 0.02} />
+      <PipelineStepper stages={job.stages} />
       <p className="text-sm text-muted-foreground">{job.stage || "Starting"}</p>
       <p className="text-sm text-muted-foreground">Only the audio is analysed first, so long videos take minutes, not hours.</p>
     </Card>
@@ -32,26 +33,10 @@ function Working({ job }: { job: Job }) {
 }
 
 function Failed({ job, onRetry }: { job: Job; onRetry: () => void }) {
-  const [busy, setBusy] = useState(false);
   return (
-    <Card className="mx-auto mt-10 max-w-xl space-y-4 p-8 text-center">
-      <AlertCircle className="mx-auto size-10 text-destructive" />
-      <h2 className="text-xl font-bold">This project didn't finish</h2>
-      <p className="text-sm text-muted-foreground">{job.error || "Something went wrong."}</p>
-      <Button
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await api(`/api/clipjob/${job.id}/retry`, { method: "POST" });
-            onRetry();
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <RefreshCw /> Try again
-      </Button>
+    <Card className="mx-auto mt-10 max-w-2xl space-y-5 p-8">
+      <PipelineStepper stages={job.stages} hideBar />
+      <FailurePanel jobId={job.id} error={job.error} stages={job.stages} onRetry={onRetry} />
     </Card>
   );
 }
@@ -131,6 +116,16 @@ export default function Project() {
                 </Button>
               </div>
 
+              {clip.virality && (
+                <Card className="grid gap-4 p-4 sm:grid-cols-[auto_1fr] sm:items-center">
+                  <div className="text-center">
+                    <p className="text-4xl font-extrabold tabular">{Math.round(clip.virality.overall_virality)}</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Virality</p>
+                  </div>
+                  <ViralityBars v={clip.virality} />
+                </Card>
+              )}
+
               <VideoStage job={job} clip={clip} media={media} player={player} beat={active} onChanged={refresh} />
 
               <div className="flex items-center justify-between">
@@ -164,6 +159,7 @@ export default function Project() {
                   ))}
                 </Track>
               </Timeline>
+              <ClipCopy clip={clip} />
               <p className="text-sm text-muted-foreground">
                 {fmtTime(clip.start)} – {fmtTime(clip.end)} of the video · {Math.round(clip.duration)} s · click the timeline or a beat to jump
               </p>

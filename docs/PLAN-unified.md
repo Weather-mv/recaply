@@ -1,7 +1,13 @@
 # Clipforge unified plan: audit and proposed architecture
 
 Status: **approved with the recommended defaults** (2026-11-22): Vite + React, YuNet,
-fallback order Groq → Gemini → Ollama → rules. **Phase 1 is built** (not committed yet).
+fallback order Groq → Gemini → Ollama → rules. **Phases 1, 2 and 3 are built** (Phase 4, live streams, is next).
+
+Phase 3 notes: caption presets Bold & Yellow / Minimal White / Neon with bounce and stagger motion
+(`render/subtitles.py`, `editor.py`); `.ass` export (`render/ass.py`); cinematic teaser (`render/teaser.py`);
+background music with sidechain ducking from `assets/bgm/` (`render/bgm.py`); start/end cut points for
+the preview and export. B-roll (Pexels) already existed: its key is now set on the Settings page.
+The browser-based classic editor (`static/editor.js`) does not preview the new caption motion.
 
 ## 1. Audit: most of the brief already exists
 

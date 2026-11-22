@@ -2,6 +2,7 @@ import { ArrowLeft, AudioLines, Film, Loader2, ShieldAlert, Type } from "lucide-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ExportPanel } from "@/components/director/ExportPanel";
+import { TrimFields } from "@/components/director/TrimFields";
 import { ReframeCanvas } from "@/components/director/ReframeCanvas";
 import { TranscriptPanel, type EditMode } from "@/components/director/TranscriptPanel";
 import { useWaveform, Waveform } from "@/components/director/Waveform";
@@ -44,7 +45,7 @@ function WordChip({ w, cut, active, onClick }: { w: Word; cut: boolean; active: 
   );
 }
 
-const DEFAULTS: ShortOptions = { export: "shorts", layout: "auto", captions: "bold", hook: true, emoji: false, tighten: false, broll: false, translate: "" };
+const DEFAULTS: ShortOptions = { export: "shorts", layout: "auto", captions: "bold", hook: true, emoji: false, tighten: false, broll: false, translate: "", teaser: true, bgm: "", bgm_level: 0.32 };
 
 export default function Director() {
   const { id, cid } = useParams();
@@ -80,6 +81,7 @@ export default function Director() {
   const [options, setOptions] = useState<ShortOptions>(DEFAULTS);
   const [zoom, setZoom] = useState(3);
   const [safeZone, setSafeZone] = useState(false);
+  const [trim, setTrim] = useState<{ start: number; end: number } | null>(null); // new cut points (seconds in the source video)
   const [busy, setBusy] = useState("");
   const [exportError, setExportError] = useState("");
   const [cutting, setCutting] = useState(false);
@@ -122,6 +124,22 @@ export default function Director() {
       setCutting(false);
     }
   };
+  const trimmed = trim && clip && (Math.abs(trim.start - clip.start) > 0.04 || Math.abs(trim.end - clip.end) > 0.04) && trim.end - trim.start >= 2 ? trim : null;
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const startPreview = async () => {
+    if (!job || !clip) return;
+    setPreviewing(true);
+    setPreviewError("");
+    try {
+      await api(`/api/clipjob/${job.id}/preview`, { json: { id: clip.id, options, ...(trimmed ? { start: trimmed.start, end: trimmed.end } : {}) } });
+      refresh();
+    } catch (e) {
+      setPreviewError(e instanceof ApiError ? e.message : "Couldn't start the preview.");
+    } finally {
+      setPreviewing(false);
+    }
+  };
   const cutState = job?.cuts[String(clipId)]?.state;
   const cuttingNow = cutting || cutState === "queued" || cutState === "cutting";
 
@@ -139,7 +157,7 @@ export default function Director() {
         });
       }
       setBusy("Starting the export…");
-      await api(`/api/clipjob/${job.id}/shorts`, { json: { ids: [clip.id], options } });
+      await api(`/api/clipjob/${job.id}/shorts`, { json: { ids: [clip.id], options, ...(trimmed && !deleted.size ? { trim: trimmed } : {}) } });
       refresh();
     } catch (e) {
       setExportError(e instanceof ApiError ? e.message : "The export didn't start.");
@@ -228,6 +246,7 @@ export default function Director() {
               <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={safeZone} onChange={(e) => setSafeZone(e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" /> Safe zone</label>
             </Tip>
           </div>
+          <TrimFields clip={clip} total={job.result?.source.duration ?? 0} value={trim} onChange={setTrim} disabled={deleted.size > 0} />
           {/* the real element: hidden, the canvas shows it */}
           {media && <video ref={player.ref} src={media.url} playsInline preload="auto" className="hidden" />}
         </div>
@@ -244,6 +263,10 @@ export default function Director() {
             error={exportError}
             deletedCount={deleted.size}
             onExport={exportShort}
+            preview={job.cuts[`p${clip.id}`]}
+            previewBusy={previewing}
+            onPreview={startPreview}
+            previewError={previewError}
             canExport={job.state !== "queued" && job.state !== "running" && ws.status !== "loading"}
           />
         </div>

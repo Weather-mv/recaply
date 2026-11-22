@@ -11,7 +11,7 @@ import os
 import time
 from typing import Callable
 
-from recaply.engine import Options, analyze, cut_clips, edit_clip, render_shorts
+from recaply.engine import Options, analyze, cut_clips, edit_clip, render_preview, render_shorts
 from recaply.ingest.sources import InputError
 from recaply.jobs import store
 from recaply.jobs.stages import LABELS, StageTracker
@@ -69,6 +69,8 @@ def run_task(job_id: str, task: str = "analyze") -> None:
         _shorts(job)
     elif task == "edit":
         _edit(job)
+    elif task == "preview":
+        _preview(job)
     else:
         raise ValueError(f"unknown task {task}")
 
@@ -226,6 +228,42 @@ def _edit(job: dict) -> None:
     store.update(jid, state="ready", stage=stage, progress=1.0, summary=summary)
 
 
+def preview_key(clip_id: int) -> str:
+    """Key of a clip's 5-second preview in the job's `cuts` record."""
+    return f"p{int(clip_id)}"
+
+
+def _preview(job: dict) -> None:
+    """A free, low-resolution preview of a clip (crop + captions). Never touches the stepper or the plan's clip count."""
+    jid = job["id"]
+    args = job.get("task_args") or {}
+    cid = int(args.get("id", -1))
+    key = preview_key(cid)
+    store.update(jid, state="running", task="preview", stage="Rendering a preview", progress=0.1)
+    store.set_cut(jid, key, {"state": "rendering", "stage": "Starting", "error": None, "file": None})
+    tel = Telemetry()
+    last = [""]
+
+    def progress(frac: float, label: str):
+        if label != last[0]:
+            last[0] = label
+            store.set_cut(jid, key, {"state": "rendering", "stage": label})
+        store.update(jid, progress=round(float(frac), 3))
+
+    try:
+        info = render_preview(job.get("result") or {}, cid, job_dir(jid), args.get("options"), args.get("start"),
+                              args.get("end"), owner=job.get("owner"), progress=progress, telemetry=tel)
+        store.set_cut(jid, key, {"state": "done", "stage": "", "file": info["file"], "layout": info["layout"],
+                                 "duration": info["duration"], "start": info["start"], "end": info["end"],
+                                 "notes": info["notes"], "error": None, "t": round(time.time(), 1)})
+        stage = "Done"
+    except Exception as e:  # noqa: BLE001 — a failed preview never fails the project
+        log.error("preview failed", job=jid, clip=cid, error=str(e)[:300])
+        store.set_cut(jid, key, {"state": "failed", "stage": "", "error": _friendly(e)})
+        stage = "The preview failed"
+    store.update(jid, state="ready", stage=stage, progress=1.0)
+
+
 def short_key(clip_id: int) -> str:
     """Key of a clip's short in the job's `cuts` record (plain ids are the cut files)."""
     return f"s{int(clip_id)}"
@@ -269,6 +307,14 @@ def _shorts(job: dict) -> None:
             except (OSError, ValueError):
                 pass
     tel = Telemetry()
+    trim = args.get("trim")
+    if trim and trim.get("id") in ids and trim.get("id") not in words_for:
+        # new cut points: the clip is cut again from the source with them (a transcript edit keeps its own file)
+        result = {**result, "clips": [{**c, "start": float(trim["start"]), "end": float(trim["end"]),
+                                       "duration": round(float(trim["end"]) - float(trim["start"]), 2)}
+                                      if c["id"] == trim["id"] else c for c in result.get("clips") or []]}
+        cut_files.pop(trim["id"], None)
+        tracker.add("info", f"Clip {trim['id']} re-cut from {trim['start']:.1f}s to {trim['end']:.1f}s")
     for cid in ids:
         store.set_cut(jid, short_key(cid), {"state": "queued"})
     try:

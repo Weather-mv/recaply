@@ -30,6 +30,7 @@ function ThemeToggle() {
 
 const NAV = [
   { to: "/", label: "Projects", end: true },
+  { to: "/settings", label: "Settings" },
 ];
 const EXTERNAL = [
   { href: "/live", label: "Live" },

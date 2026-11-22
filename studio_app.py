@@ -29,6 +29,7 @@ from recaply.jobs import store
 from recaply.jobs.runner import job_dir
 from recaply.profiles import all_profiles
 from recaply.providers.llm import ai_status, ollama_status  # noqa: F401  (ollama_status: kept for callers)
+from recaply import user_settings
 from recaply.settings import settings
 
 if DESKTOP:
@@ -131,6 +132,47 @@ def create_project():
         return jsonify({"error": "That file wasn't found, or isn't a video."}), 400
     jid = clip_routes._start(text, opts, title="" if looks_like_url(text) else os.path.basename(text))
     return jsonify({"id": jid})
+
+
+def _can_configure() -> bool:
+    """The AI keys are this PC's: only the owner at this PC may read or change them (never a visitor of a hosted copy)."""
+    from config import PUBLIC_URL
+    return bool(DESKTOP) or (not PUBLIC_URL and (request.remote_addr or "") in ("127.0.0.1", "::1"))
+
+
+@bp.route("/api/studio/settings", methods=["GET", "POST"])
+def user_settings_api():
+    """The Settings page: which AI keys are set (never their values), the provider order, and what will be used."""
+    if not _can_configure():
+        return jsonify({"error": "Settings can only be changed on the PC that runs Clipforge."}), 403
+    problems = {}
+    if request.method == "POST":
+        body = request.get_json(force=True, silent=True) or {}
+        problems = user_settings.update(settings, body.get("set") or {})
+    return jsonify({"settings": user_settings.status(), "problems": problems, "ai": ai_status(),
+                    "providers": ["groq", "gemini", "anthropic", "openai", "ollama"]})
+
+
+@bp.route("/api/studio/settings/test", methods=["POST"])
+def user_settings_test():
+    """One tiny request to a provider, so the user knows its key works. Says why when it doesn't."""
+    if not _can_configure():
+        return jsonify({"error": "Settings can only be changed on the PC that runs Clipforge."}), 403
+    name = str((request.get_json(force=True, silent=True) or {}).get("provider") or "").lower()
+    if name == "ollama":
+        st = ollama_status()
+        ok = bool(st["running"] and st["model_ready"])
+        return jsonify({"ok": ok, "message": f"Ollama is running with {st['model']}." if ok else st["hint"]})
+    from recaply.providers.http import ProviderError
+    from recaply.providers.llm import get_llm
+    llm = get_llm(name) if name in ("groq", "gemini", "anthropic", "openai") else None
+    if llm is None:
+        return jsonify({"ok": False, "message": "Save an API key for this provider first."})
+    try:
+        data, _usage = llm.complete_json("You answer with JSON only.", 'Reply with {"ok": true}.', max_tokens=40)
+    except (ProviderError, OSError, ValueError) as e:
+        return jsonify({"ok": False, "message": " ".join(str(e).split())[:200]})
+    return jsonify({"ok": True, "message": f"{name} answered ({llm.model})."})
 
 
 @bp.route("/api/clipjob/<job_id>/log")

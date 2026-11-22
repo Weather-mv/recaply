@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
+import { PipelineStepper } from "@/components/project/PipelineStepper";
 import { isActive, useBoot, useProjects } from "@/hooks/data";
 import { api, ApiError, thumbUrl } from "@/lib/api";
+import { STAGE_LABEL } from "@/lib/stages";
 import type { Project } from "@/lib/types";
 import { ago, cn, fmtTime } from "@/lib/utils";
 
@@ -173,11 +174,14 @@ function ProjectCard({ p }: { p: Project }) {
           <h3 className="line-clamp-2 min-h-[2.75rem] text-base font-semibold leading-snug">{p.title || "Untitled"}</h3>
           {active ? (
             <div className="space-y-2">
-              <Progress value={p.progress} indeterminate={p.progress < 0.02} />
+              <PipelineStepper stages={p.stages} compact />
               <p className="truncate text-sm text-muted-foreground">{p.stage || "Starting"}</p>
             </div>
           ) : p.state === "failed" ? (
-            <p className="line-clamp-2 text-sm text-destructive">{p.error || "Something went wrong."}</p>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-destructive">{p.failed_stage ? `Failed while ${STAGE_LABEL[p.failed_stage].toLowerCase()}` : "Failed"}</p>
+              <p className="line-clamp-2 text-sm text-destructive/90">{p.error || "Something went wrong."}</p>
+            </div>
           ) : (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-1.5"><Clapperboard className="size-4" /> {p.clips} clips</span>

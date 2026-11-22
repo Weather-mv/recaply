@@ -144,5 +144,8 @@ class Settings:
                 or p == "ollama")
 
 
+from recaply import user_settings as _user_settings  # noqa: E402
+
+_user_settings.load_into_environment()        # keys saved from the studio's Settings page win over .env
 settings = Settings()
 os.makedirs(settings.cache_dir, exist_ok=True)

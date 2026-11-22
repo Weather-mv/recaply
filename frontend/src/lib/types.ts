@@ -12,6 +12,15 @@ export interface Beat {
   time?: string;
 }
 
+/** The four 0-10 axes of the AI's virality score and the 0-100 overall (null for jobs made before they existed). */
+export interface Virality {
+  hook_score: number;
+  engagement_score: number;
+  value_score: number;
+  shareability_score: number;
+  overall_virality: number;
+}
+
 export interface Clip {
   id: number;
   rank?: number;
@@ -21,6 +30,7 @@ export interface Clip {
   time: string;
   score: number;
   llm_score: number | null;
+  virality?: Virality | null;
   signal_score: number;
   text_score: number;
   reason: string;
@@ -36,6 +46,40 @@ export interface Clip {
   window: [number, number];
 }
 
+export type StageKey = "download" | "analyze" | "transcribe" | "score" | "render";
+export type StageState = "pending" | "running" | "done" | "failed" | "skipped";
+
+/** One step of the pipeline stepper (recaply/jobs/stages.py). */
+export interface PipelineStage {
+  key: StageKey;
+  label: string;
+  state: StageState;
+  progress: number; // 0..1 inside the stage
+  started: number | null;
+  finished: number | null;
+  error: string | null;
+  detail: string;
+}
+
+export interface LogEntry {
+  t: number;
+  level: "info" | "warning" | "error";
+  stage: StageKey | null;
+  msg: string;
+}
+
+export interface JobLog {
+  id: string;
+  state: JobState;
+  stage: string;
+  error: string | null;
+  stages: PipelineStage[];
+  current: StageKey | null;
+  failed_stage: StageKey | null;
+  log: LogEntry[];
+  notes: string[];
+}
+
 export type JobState = "queued" | "running" | "ready" | "failed" | "cancelled";
 
 export interface CutInfo {
@@ -44,6 +88,15 @@ export interface CutInfo {
   error?: string | null;
   stage?: string;
   size_mb?: number;
+  layout?: string;
+  ass?: string; // the karaoke captions as a subtitle file
+  teaser?: boolean;
+  music?: string | null;
+  t?: number; // when a preview was made (to bust the browser cache of the same file name)
+  duration?: number;
+  start?: number;
+  end?: number;
+  notes?: string[];
 }
 
 export interface JobResult {
@@ -78,6 +131,9 @@ export interface Job {
   options: Record<string, unknown>;
   version: number;
   media: { source: boolean; audio: boolean };
+  stages?: PipelineStage[];
+  current?: StageKey | null;
+  failed_stage?: StageKey | null;
 }
 
 export interface Project {
@@ -95,6 +151,10 @@ export interface Project {
   duration: number | null;
   thumb: string | null;
   extractor: string | null;
+  scorer?: string | null;
+  stages?: PipelineStage[];
+  current?: StageKey | null;
+  failed_stage?: StageKey | null;
 }
 
 export interface Word {
@@ -123,6 +183,7 @@ export interface Capabilities {
   layouts: Choice[];
   captions: Choice[];
   languages: Choice[];
+  music: { name: string; size_mb: number }[];
 }
 
 export interface Session {
@@ -136,6 +197,7 @@ export interface Session {
 
 export interface Health {
   llm: string;
+  llm_order?: string[];
   ollama: { running: boolean; model: string; model_ready: boolean; hint: string };
   queue: { backend: string; waiting: number; workers: number; ready: boolean };
 }
@@ -149,4 +211,23 @@ export interface ShortOptions {
   tighten: boolean;
   broll: boolean;
   translate: string;
+  teaser: boolean;
+  bgm: string; // "" none | "auto" | a file name in assets/bgm
+  bgm_level: number;
+}
+
+export interface SettingRow {
+  name: string;
+  label: string;
+  secret: boolean;
+  set: boolean;
+  source: "ui" | "env" | "none";
+  value: string;
+}
+
+export interface SettingsReply {
+  settings: SettingRow[];
+  problems: Record<string, string>;
+  ai: { provider: string; order: string[]; ready: boolean; ollama: Health["ollama"] };
+  providers: string[];
 }

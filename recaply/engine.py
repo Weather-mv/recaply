@@ -494,6 +494,57 @@ def render_shorts(result: dict, ids: list[int], out_dir: str, opts: dict | None 
     return out
 
 
+PREVIEW_SECONDS = 5.0
+
+
+def render_preview(result: dict, clip_id: int, out_dir: str, opts: dict | None = None, start: float | None = None,
+                   end: float | None = None, seconds: float = PREVIEW_SECONDS, owner=None,
+                   progress: Callable[[float, str], None] | None = None, telemetry: Telemetry | None = None) -> dict:
+    """
+    A short, low-resolution look at how a clip will come out (crop and captions) before the real export:
+    `seconds` of the clip from `start` (default: the clip's start; `start`/`end` also let the editor try
+    other cut points), cut at 720p and rendered as the 720p "draft" preset. Free: nothing is charged and
+    the real short and cut files are never touched. Returns render_short's info ({"file", "layout", ...}).
+    """
+    from recaply.profiles import get_profile
+    from recaply.render.shorts import ShortOptions, render_short
+    tel = telemetry or Telemetry()
+    by_id = {c["id"]: c for c in result["clips"]}
+    c = by_id.get(clip_id)
+    if c is None:
+        raise InputError("That clip isn't in this project.")
+    total = float((result.get("source") or {}).get("duration") or c["end"])
+    a = c["start"] if start is None else max(0.0, min(float(start), total - 1.0))
+    b = c["end"] if end is None else max(a + 1.0, min(float(end), total))
+    b = min(b, a + max(1.0, seconds))
+    trimmed = {**c, "start": a, "end": b, "duration": round(b - a, 2)}
+    sub = {**result, "clips": [trimmed]}
+    o = ShortOptions.from_dict({**(opts or {}), "export": "draft"})
+    o.tighten, o.broll, o.translate, o.teaser, o.bgm = False, False, "", False, ""   # slow or paid extras: only in the real export
+    cut_dir = os.path.join(out_dir, "_preview")
+    if progress:
+        progress(0.02, "Cutting a few seconds")
+    with tel.stage("preview_cut"):
+        cuts = cut_clips(sub, [clip_id], cut_dir, quality="720", telemetry=tel)
+    info = cuts.get(clip_id) or {}
+    if "file" not in info:
+        raise RuntimeError(info.get("error") or "Cutting the preview failed.")
+    try:
+        profile = get_profile(result["profile"]["key"])
+        reframe_pref, keywords = profile.reframe, profile.keywords
+    except KeyError:
+        reframe_pref, keywords = "center", ()
+    if progress:
+        progress(0.2, "Reading the words")
+    words = clip_words(sub, trimmed, tel) if o.captions != "none" else []
+    with tel.stage("preview_render"):
+        out = render_short(trimmed, os.path.join(cut_dir, info["file"]), words, out_dir, o,
+                           profile_reframe=reframe_pref, keywords=keywords, owner=owner, watermark=False,
+                           telemetry=tel, tag="preview_",
+                           progress=(lambda f, s: progress(0.3 + 0.7 * f, s)) if progress else None)
+    return {**out, "start": a, "end": b}
+
+
 # ---------- Phase 5: transcript editing ----------
 
 def edit_clip(result: dict, clip_id: int, deleted: list[int], out_dir: str, cut_file: str | None = None,

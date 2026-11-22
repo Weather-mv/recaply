@@ -10,6 +10,7 @@ export function GlobalStatus({ projects, health }: { projects: Project[]; health
   const ai = health?.ollama;
   const usingOllama = health?.llm === "ollama";
   const aiReady = !usingOllama || (!!ai?.running && !!ai?.model_ready);
+  const fallbacks = health?.llm_order && health.llm_order.length > 1 ? ` Falls back to ${health.llm_order.slice(1).join(", ")}.` : "";
 
   const pill = (
     <span
@@ -40,8 +41,8 @@ export function GlobalStatus({ projects, health }: { projects: Project[]; health
             aiReady
               ? usingOllama
                 ? `Local AI ready (${ai?.model}). Nothing leaves this PC.`
-                : `AI provider: ${health.llm}`
-              : ai?.hint || "The AI isn't ready. Clips are scored by rules until it is."
+                : `AI provider: ${health.llm}.${fallbacks}`
+              : `${ai?.hint || "The AI isn't ready."} Clips are scored by rules until it is. Add a Groq or Gemini key in Settings.`
           }
         >
           <span

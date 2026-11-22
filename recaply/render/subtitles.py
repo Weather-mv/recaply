@@ -31,7 +31,14 @@ PRESETS: dict[str, dict] = {
                "bg_op": 0, "pop": True},
     "neon": {"label": "Neon", "per": 3, "size": 80, "upper": True, "color": "#ffffff", "hi": "#3dff8a",
              "hi_mode": "color", "hi_bg": "#0865ff", "stroke": "#0a0a0a", "stroke_w": 8, "bg": "#000000",
-             "bg_op": 0, "pop": True},
+             "bg_op": 0, "pop": True, "motion": "stagger"},
+    # the three named styles of the studio: a bouncing yellow word, plain white text, words popping in neon
+    "bold_yellow": {"label": "Bold & Yellow", "per": 3, "size": 88, "upper": True, "color": "#ffffff", "hi": "#ffe500",
+                    "hi_mode": "color", "hi_bg": "#ffe500", "stroke": "#000000", "stroke_w": 9, "bg": "#000000",
+                    "bg_op": 0, "pop": True, "motion": "bounce"},
+    "minimal_white": {"label": "Minimal White", "per": 5, "size": 56, "upper": False, "color": "#ffffff", "hi": "#ffffff",
+                      "hi_mode": "none", "hi_bg": "#ffffff", "stroke": "#000000", "stroke_w": 3, "bg": "#000000",
+                      "bg_op": 0, "pop": False, "motion": "none"},
     "clean": {"label": "Clean", "per": 5, "size": 62, "upper": False, "color": "#ffffff", "hi": "#ffd21f",
               "hi_mode": "color", "hi_bg": "#0865ff", "stroke": "#000000", "stroke_w": 4, "bg": "#000000",
               "bg_op": 0, "pop": False},
@@ -136,6 +143,7 @@ def captions_layer(words: list[dict], preset: str, fmt: str, layout: str, W: int
         "hi_mode": st["hi_mode"], "stroke": st["stroke"], "stroke_w": round(st["stroke_w"] * scale, 2),
         "bg": st["bg"], "bg_op": st["bg_op"], "upper": st["upper"], "pop": st["pop"], "per": st["per"],
         "preset": preset if preset in PRESETS else "bold", "kw": KEYWORD_COLOR,
+        "motion": st.get("motion", "none"),
         "chunks": build_chunks(marked, st["per"], emoji),
     }
     if colors:

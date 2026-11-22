@@ -1,7 +1,8 @@
-import { CheckCircle2, Download, Loader2, Rocket, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Download, Eye, Loader2, Rocket, ScanFace, Crop, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import { clipFileUrl } from "@/lib/api";
 import { LAYOUT_NOTES, type Layout } from "@/lib/reframe";
 import type { Capabilities, CutInfo, ShortOptions } from "@/lib/types";
@@ -17,11 +18,22 @@ interface Props {
   deletedCount: number;
   onExport: () => void;
   canExport: boolean;
+  /** the free 5-second low-res preview of this clip with the current crop and captions */
+  preview?: CutInfo;
+  previewBusy?: boolean;
+  onPreview?: () => void;
+  previewError?: string;
 }
 
-export function ExportPanel({ jobId, caps, options, onChange, short, busy, error, deletedCount, onExport, canExport }: Props) {
+const REFRAME = [
+  { layout: "auto", label: "Auto-reframe", hint: "Follows face or action", Icon: ScanFace },
+  { layout: "center", label: "Center crop", hint: "Fixed crop", Icon: Crop },
+] as const;
+
+export function ExportPanel({ jobId, caps, options, onChange, short, busy, error, deletedCount, onExport, canExport, preview, previewBusy, onPreview, previewError }: Props) {
   const set = <K extends keyof ShortOptions>(k: K, v: ShortOptions[K]) => onChange({ ...options, [k]: v });
   const rendering = !!busy || short?.state === "queued" || short?.state === "rendering";
+  const previewing = !!previewBusy || preview?.state === "queued" || preview?.state === "rendering";
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto rounded-lg border bg-card p-4">
@@ -34,7 +46,28 @@ export function ExportPanel({ jobId, caps, options, onChange, short, busy, error
         </Select>
       </div>
       <div>
-        <Label htmlFor="exp-layout">Reframe layout (live preview)</Label>
+        <Label>Framing</Label>
+        <div role="radiogroup" aria-label="Framing" className="grid grid-cols-2 gap-1 rounded-full border bg-secondary/50 p-1">
+          {REFRAME.map(({ layout, label, hint, Icon }) => (
+            <button
+              key={layout}
+              type="button"
+              role="radio"
+              aria-checked={options.layout === layout}
+              onClick={() => set("layout", layout)}
+              className={cn(
+                "flex h-11 flex-col items-center justify-center rounded-full text-sm font-semibold leading-tight transition-colors",
+                options.layout === layout ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className="inline-flex items-center gap-1.5"><Icon className="size-4" /> {label}</span>
+              <span className="text-xs font-normal opacity-80">{hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <Label htmlFor="exp-layout">All layouts (live preview)</Label>
         <Select id="exp-layout" value={options.layout} onChange={(e) => set("layout", e.target.value)}>
           {caps.layouts.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
         </Select>
@@ -59,7 +92,37 @@ export function ExportPanel({ jobId, caps, options, onChange, short, busy, error
         <SwitchRow title="Emoji in captions" checked={options.emoji} onChange={(v) => set("emoji", v)} />
         <SwitchRow title="Tighten" hint="Remove fillers and long pauses" checked={options.tighten} onChange={(v) => set("tighten", v)} />
         <SwitchRow title="B-roll" hint="Stock cut-aways matched to keywords" checked={options.broll} onChange={(v) => set("broll", v)} />
+        <SwitchRow title="Cinematic teaser" hint="A 3 second cold open with the best frame, then a glitch into the clip" checked={options.teaser} onChange={(v) => set("teaser", v)} />
       </div>
+      <div>
+        <Label htmlFor="exp-music">Background music</Label>
+        <Select id="exp-music" value={options.bgm} onChange={(e) => set("bgm", e.target.value)} disabled={!caps.music.length}>
+          <option value="">No music</option>
+          {caps.music.length > 0 && <option value="auto">Auto (one per clip)</option>}
+          {caps.music.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
+        </Select>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          {caps.music.length ? "It dips automatically while someone is speaking." : "Add music files to the assets/bgm folder, then reload this page."}
+        </p>
+      </div>
+
+      {onPreview && (
+        <div className="space-y-2 rounded-lg border p-3">
+          <Button type="button" variant="secondary" className="w-full" onClick={onPreview} disabled={previewing || !canExport}>
+            {previewing ? <Loader2 className="animate-spin" /> : <Eye />}
+            {previewing ? preview?.stage || "Rendering preview…" : "Preview 5 seconds"}
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">Free, low resolution: check the crop and captions before you export.</p>
+          {(previewError || preview?.state === "failed") && (
+            <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" /> {previewError || preview?.error || "The preview failed."}
+            </p>
+          )}
+          {preview?.state === "done" && preview.file && !previewing && (
+            <video key={preview.file} src={`${clipFileUrl(jobId, preview.file)}?v=${preview.t ?? ""}`} controls autoPlay muted loop playsInline className="mx-auto max-h-72 rounded-md bg-black" />
+          )}
+        </div>
+      )}
 
       <div className="mt-auto space-y-3">
         {deletedCount > 0 && <p className="text-sm text-muted-foreground">{deletedCount} cut words are applied first, then the short is rendered.</p>}
@@ -81,6 +144,14 @@ export function ExportPanel({ jobId, caps, options, onChange, short, busy, error
             <Button asChild variant="secondary" size="sm" className="w-full">
               <a href={`${clipFileUrl(jobId, short.file)}?dl=1`}><Download /> Download MP4</a>
             </Button>
+            {short.ass && (
+              <Button asChild variant="ghost" size="sm" className="w-full">
+                <a href={`${clipFileUrl(jobId, short.ass)}?dl=1`}><Download /> Captions (.ass)</a>
+              </Button>
+            )}
+            {(short.teaser || short.music) && (
+              <p className="text-center text-xs text-muted-foreground">{[short.teaser && "teaser added", short.music && `music: ${short.music}`].filter(Boolean).join(" · ")}</p>
+            )}
           </div>
         )}
       </div>

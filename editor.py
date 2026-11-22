@@ -351,6 +351,7 @@ def clean_layer(raw, W, H, assets_dir, used_ids):
         L["bg_op"] = _num(raw, "bg_op", 0, 0, 1)
         L["upper"] = bool(raw.get("upper"))
         L["pop"] = bool(raw.get("pop", True))
+        L["motion"] = raw.get("motion") if raw.get("motion") in CAP_MOTIONS else "none"
         L["per"] = int(_num(raw, "per", 3, 1, 8))
         if isinstance(raw.get("preset"), str) and re.match(r"^[a-z]{1,12}$", raw["preset"]):
             L["preset"] = raw["preset"]
@@ -574,12 +575,16 @@ def text_lines(L):
 
 CAP_POP = 0.2                           # seconds a chunk takes to pop in
 CAP_POP_FRAMES = 5                      # pictures drawn for the pop (the page animates it smoothly too)
+CAP_MOTIONS = ("none", "bounce", "stagger")
+CAP_WORD = 0.22                         # seconds a word's bounce / pop-in takes (motion "bounce" and "stagger")
+CAP_WORD_FRAMES = 6                     # pictures drawn for it
 CAP_GAP = 0.6                           # a chunk stays up across pauses shorter than this
 CAP_TAIL = 0.3                          # ...and this long after its last word otherwise
 
 
 def caption_state(L, t, trim0, speed):
-    """(chunk index, active word index, scale, opacity) at output time t, or None."""
+    """(chunk index, active word index, scale, opacity, word phase) at output time t, or None.
+    The word phase is 0..1 through the active word's bounce / pop-in (1 when the layer has no motion)."""
     ch = L["chunks"]
     out = lambda s: (s - trim0) / speed                         # noqa: E731
     i = None
@@ -601,12 +606,15 @@ def caption_state(L, t, trim0, speed):
     for k, w in enumerate(c["words"]):
         if out(w["s"]) <= t:
             j = k
+    wp = 1.0
+    if L.get("motion", "none") != "none":
+        wp = min(1.0, max(0.0, (t - out(c["words"][j]["s"])) / CAP_WORD))
     sc, op = 1.0, 1.0
     if L["pop"]:
         u = (t - cs) / CAP_POP
         if u < 1:
             sc, op = 0.7 + 0.3 * _back_out(u), min(1.0, u * 2.5)
-    return i, j, round(sc, 4), round(op, 4)
+    return i, j, round(sc, 4), round(op, 4), round(wp * CAP_WORD_FRAMES) / CAP_WORD_FRAMES
 
 
 def caption_layout(L, chunk, measure):
@@ -642,8 +650,9 @@ def caption_layout(L, chunk, measure):
 
 
 def _draw_caption(img, L, state, P, ss=SS):
-    """One caption state (chunk i, word j, scale, opacity) into `img` via canvas->image mapping P."""
-    i, j, sc, op = state
+    """One caption state (chunk i, word j, scale, opacity, word phase) into `img` via canvas->image mapping P."""
+    i, j, sc, op, wp = state
+    motion = L.get("motion", "none")
     size = L["size"]
     font0 = _lfont(L, size)
     items, top, block = caption_layout(L, L["chunks"][i], font0.getlength)
@@ -666,14 +675,28 @@ def _draw_caption(img, L, state, P, ss=SS):
     sw = int(round(L["stroke_w"] * sc * ss))
     stroke_mask = Image.new("L", img.size, 0) if sw > 0 else None
     masks = {}
-    for k, (w, x, base, _, _) in enumerate(items):
-        xy = S(x, base)
-        if stroke_mask is not None:
-            ImageDraw.Draw(stroke_mask).text(xy, w, font=font, fill=255, anchor="ls", stroke_width=sw, stroke_fill=255)
+    for k, (w, x, base, ww, _) in enumerate(items):
+        wsc, lift = 1.0, 0.0
+        if motion == "stagger" and k > j:
+            continue                                         # words appear one by one, as they are spoken
+        if k == j and motion == "bounce":
+            wsc, lift = 1 + 0.22 * math.sin(math.pi * wp), size * 0.16 * math.sin(math.pi * wp)
+        elif k == j and motion == "stagger":
+            wsc = 0.55 + 0.45 * _back_out(wp)
+        wf, wsw = font, sw
+        if wsc != 1.0:                                       # the animated word grows / shrinks around its own centre
+            wf, wsw = _lfont(L, size * sc * ss * wsc), int(round(L["stroke_w"] * sc * ss * wsc))
+            xy = S(x + ww / 2, base - lift)
+            anchor = "ms"
+        else:
+            xy = S(x, base)
+            anchor = "ls"
+        if stroke_mask is not None and wsw > 0:
+            ImageDraw.Draw(stroke_mask).text(xy, w, font=wf, fill=255, anchor=anchor, stroke_width=wsw, stroke_fill=255)
         kw = L["chunks"][i]["words"][k].get("k")
         col = L["hi"] if (k == j and L["hi_mode"] == "color") else (L.get("kw", L["hi"]) if kw else L["color"])
         m = masks.setdefault(col, Image.new("L", img.size, 0))
-        ImageDraw.Draw(m).text(xy, w, font=font, fill=255, anchor="ls")
+        ImageDraw.Draw(m).text(xy, w, font=wf, fill=255, anchor=anchor)
     if stroke_mask is not None:
         _paint(img, stroke_mask, _rgba(L["stroke"], 1))
     for col, m in masks.items():
@@ -1023,6 +1046,9 @@ def _tracks(doc, assets_dir, work):
                 cs = out_t(c["words"][0]["s"])
                 times.update(cs + CAP_POP * i / CAP_POP_FRAMES for i in range(CAP_POP_FRAMES + 1))
                 times.update(out_t(w["s"]) for w in c["words"])
+                if L.get("motion", "none") != "none":           # frames for each word's bounce / pop-in
+                    times.update(out_t(w["s"]) + CAP_WORD * q / CAP_WORD_FRAMES
+                                 for w in c["words"] for q in range(1, CAP_WORD_FRAMES + 1))
                 times.update((out_t(c["words"][-1]["e"]) + CAP_TAIL, out_t(c["words"][-1]["e"]) + CAP_GAP))
             segs = []
             for t in sorted(x for x in times if 0 <= x <= D):
