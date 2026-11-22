@@ -167,8 +167,7 @@ def main():
 
     def busy():
         recaply = state["app"]
-        return bool(recaply) and (any(recaply.busy(j) for j in list(recaply.JOBS.values())) or any(
-            recaply.editor_routes.project_busy(p) for p in list(recaply.editor_routes.PROJECTS.values())))
+        return bool(recaply) and recaply.busy_work()
 
     def stop():
         if state["icon"]:
@@ -198,7 +197,7 @@ def main():
     def boot():
         try:
             import desktop_auth
-            import app as recaply                       # loads recaps, projects and the models' code
+            import app as recaply                       # loads the clip jobs and the models' code
             from flask import abort, request
 
             @recaply.app.route("/__show")

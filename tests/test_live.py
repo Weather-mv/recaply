@@ -432,8 +432,6 @@ def test_live_routes(monkeypatch):
     app.jinja_env.globals.update(csrf_token=lambda: "t", user=None, ent=None, plans={})
     app.register_blueprint(live_routes.bp)
     c = app.test_client()
-    page = c.get("/live")
-    assert page.status_code == 200 and b"Clip streams while they happen" in page.data
     r = c.post("/api/live/channels", json={"name": "rt", "url": "https://www.twitch.tv/foo", "discord": "https://discord.com/api/webhooks/1/2", "start": True})
     assert r.status_code == 200 and mgr.started == ["rt"] and r.get_json()["channel"]["discord"] is True
     r = c.post("/api/live/channels", json={"name": "rt", "url": "https://www.twitch.tv/foo", "pre": 20})   # blank webhook keeps the saved one

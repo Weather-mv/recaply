@@ -146,7 +146,7 @@ export default function Project() {
                   <TabsContent value="clips"><ClipsPanel clips={clips} selected={clip.id} onSelect={(cid) => setSp({ clip: String(cid) }, { replace: true })} /></TabsContent>
                   <TabsContent value="transcript"><TranscriptTab clip={clip} /></TabsContent>
                   <TabsContent value="captions"><CaptionsTab jobId={job.id} clipId={clip.id} /></TabsContent>
-                  <TabsContent value="brand"><BrandTab jobId={job.id} /></TabsContent>
+                  <TabsContent value="brand"><BrandTab /></TabsContent>
                   <TabsContent value="beats"><BeatsPanel clip={clip} active={active} onSeek={seekBeat} /></TabsContent>
                 </div>
               </Tabs>

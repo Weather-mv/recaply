@@ -51,7 +51,7 @@ export default function Director() {
   const { id, cid } = useParams();
   const clipId = Number(cid);
   const { job, error, gone, refresh } = useJob(id);
-  const { caps } = useBoot();
+  const { caps, session } = useBoot();
 
   const clip = job?.result?.clips.find((c) => c.id === clipId) ?? null;
   const media = useMemo(() => (job && clip ? pickMedia(job, clip) : null), [job, clip]);
@@ -267,6 +267,7 @@ export default function Director() {
             previewBusy={previewing}
             onPreview={startPreview}
             previewError={previewError}
+            publishClip={session?.desktop ? clip : undefined}
             canExport={job.state !== "queued" && job.state !== "running" && ws.status !== "loading"}
           />
         </div>

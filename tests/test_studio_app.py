@@ -182,3 +182,15 @@ def test_classic_dashboard_redirect():
     # logged out it goes to login first; what matters is that /app never renders the Valorant page by default
     r = c.get("/app")
     assert r.status_code == 302 and ("/studio" in r.headers["Location"] or "/login" in r.headers["Location"])
+
+
+def test_old_page_addresses_land_in_the_studio():
+    import app as recaply_app
+    c = recaply_app.app.test_client()
+    with c.session_transaction() as s:
+        s["uid"] = 1
+    for old, new in {"/queue": "/studio/queue", "/usage": "/studio/usage", "/live": "/studio/live", "/reels": "/studio",
+                     "/editor": "/studio", "/job/abc": "/studio", "/clipjob/abc123": "/studio/p/abc123",
+                     "/clipjob/abc123/edit/4": "/studio/p/abc123/clip/4"}.items():
+        r = c.get(old)
+        assert r.status_code == 302 and (r.headers["Location"].endswith(new) or "/login" in r.headers["Location"]), old

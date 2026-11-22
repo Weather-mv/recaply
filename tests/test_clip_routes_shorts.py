@@ -90,12 +90,12 @@ def test_shorts_route_validates(client):
     assert client.post("/api/clipjob/zzzz/shorts", json={"ids": ids}).status_code == 404
 
 
-def test_job_page_offers_the_shorts_controls(client):
-    jid, _ = make_job()
-    page = client.get(f"/clipjob/{jid}")
-    assert page.status_code == 200
-    html = page.get_data(as_text=True)
-    assert 'id="mk-shorts"' in html and "YouTube Shorts (9:16)" in html and "Karaoke" in html
+def test_shorts_choices_are_offered_to_the_studio(client):
+    caps = client.get("/api/clips/health")
+    assert caps.status_code == 200
+    from clip_routes import short_choices
+    ch = short_choices()
+    assert any("Shorts" in c["label"] for c in ch["exports"]) and any("Karaoke" in c["label"] for c in ch["captions"])
 
 
 def test_brand_kit_api(client):

@@ -134,7 +134,7 @@ interface Brand {
   kit: { logo: boolean; logo_pos: string; accent: string; text_color: string; keyword_color: string; caption_style: string; font: string; intro: boolean; outro: boolean };
 }
 
-export function BrandTab({ jobId }: { jobId: string }) {
+export function BrandTab() {
   const [brand, setBrand] = useState<Brand | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -170,7 +170,7 @@ export function BrandTab({ jobId }: { jobId: string }) {
         <Flag on={k.outro} label="Outro clip" />
       </ul>
       <p className="flex items-center gap-2 text-xs text-muted-foreground"><ImageIcon className="size-3.5" /> Caption style: <span className="font-medium text-foreground">{k.caption_style}</span> · font: <span className="font-medium text-foreground">{k.font}</span></p>
-      <a href={`/clipjob/${jobId}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><ExternalLink className="size-4" /> Edit brand kit in the classic editor</a>
+      <Link to="/brand" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><ExternalLink className="size-4" /> Edit brand kit</Link>
     </div>
   );
 }

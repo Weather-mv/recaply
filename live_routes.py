@@ -90,11 +90,6 @@ def _state() -> dict:
             "profiles": [{"key": p.key, "label": p.label} for p in all_profiles() if not p.hidden]}
 
 
-@bp.route("/live")
-def live_page():
-    return render_template("live.html", desktop=DESKTOP or available())
-
-
 @bp.route("/api/live")
 def live_state():
     return jsonify(_state())

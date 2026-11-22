@@ -19,7 +19,7 @@ datas = [
     (os.path.join(SPECPATH, "recaply.ico"), "."),  # the tray icon
 ]
 binaries = []
-hiddenimports = ["app", "editor_routes", "desktop_auth", "captions", "reels", "editor", "live", "killer_id",
+hiddenimports = ["app", "desktop_auth", "captions", "reels", "editor", "live", "killer_id",
                  "round_detector", "pipeline", "waitress", "webview.platforms.edgechromium",
                  "pystray._win32", "clip_routes"]
 # The clipping core: profiles, signals and providers are looked up by name at runtime.

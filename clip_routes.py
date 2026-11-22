@@ -204,13 +204,6 @@ def clips_health():
     return jsonify({"llm": st["provider"], "llm_order": st["order"], "ollama": st["ollama"], "queue": queue_info()})
 
 
-@bp.route("/clipjob/<job_id>")
-def clipjob_page(job_id):
-    job = _owned(job_id)
-    return render_template("clipjob.html", job=view(job), job_json=json.dumps(view(job)),
-                           profiles=profile_choices(), shorts=short_choices())
-
-
 @bp.route("/api/clipjob/<job_id>")
 def clipjob_get(job_id):
     return jsonify(view(_owned(job_id)))

@@ -69,15 +69,6 @@ def _when(raw) -> float:
 
 # ---------- transcript editor ----------
 
-@bp.route("/clipjob/<job_id>/edit/<int:cid>")
-def edit_page(job_id, cid):
-    job = clip_routes._owned(job_id)
-    clip = _clip(job, cid)
-    return render_template("edit.html", job=clip_routes.view(job), clip=clip, cid=cid, desktop=DESKTOP,
-                           shorts=clip_routes.short_choices(),
-                           languages=[{"key": k, "label": v} for k, v in tr.LANGUAGES.items()])
-
-
 @bp.route("/api/clipjob/<job_id>/clip/<int:cid>/words")
 def clip_words(job_id, cid):
     job = clip_routes._owned(job_id)
@@ -221,11 +212,6 @@ def _queue_jobs() -> list[dict]:
     return out
 
 
-@bp.route("/queue")
-def queue_page():
-    return render_template("queue.html", desktop=DESKTOP, profiles=clip_routes.profile_choices())
-
-
 @bp.route("/api/queue")
 def queue_state():
     jobs = _queue_jobs()
@@ -265,11 +251,6 @@ def queue_cancel(job_id):
 
 
 # ---------- usage ----------
-
-@bp.route("/usage")
-def usage_page():
-    return render_template("usage.html", desktop=DESKTOP)
-
 
 @bp.route("/api/usage")
 def usage_state():

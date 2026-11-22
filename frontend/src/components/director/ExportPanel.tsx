@@ -5,7 +5,8 @@ import { SwitchRow } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { clipFileUrl } from "@/lib/api";
 import { LAYOUT_NOTES, type Layout } from "@/lib/reframe";
-import type { Capabilities, CutInfo, ShortOptions } from "@/lib/types";
+import type { Capabilities, Clip, CutInfo, ShortOptions } from "@/lib/types";
+import { PublishPanel } from "./PublishPanel";
 
 interface Props {
   jobId: string;
@@ -23,6 +24,8 @@ interface Props {
   previewBusy?: boolean;
   onPreview?: () => void;
   previewError?: string;
+  /** set on the desktop app: lets the finished short be published or scheduled */
+  publishClip?: Clip;
 }
 
 const REFRAME = [
@@ -30,7 +33,7 @@ const REFRAME = [
   { layout: "center", label: "Center crop", hint: "Fixed crop", Icon: Crop },
 ] as const;
 
-export function ExportPanel({ jobId, caps, options, onChange, short, busy, error, deletedCount, onExport, canExport, preview, previewBusy, onPreview, previewError }: Props) {
+export function ExportPanel({ jobId, caps, options, onChange, short, busy, error, deletedCount, onExport, canExport, preview, previewBusy, onPreview, previewError, publishClip }: Props) {
   const set = <K extends keyof ShortOptions>(k: K, v: ShortOptions[K]) => onChange({ ...options, [k]: v });
   const rendering = !!busy || short?.state === "queued" || short?.state === "rendering";
   const previewing = !!previewBusy || preview?.state === "queued" || preview?.state === "rendering";
@@ -154,6 +157,7 @@ export function ExportPanel({ jobId, caps, options, onChange, short, busy, error
             )}
           </div>
         )}
+        {publishClip && short?.state === "done" && short.file && <PublishPanel jobId={jobId} file={short.file} clip={publishClip} />}
       </div>
     </div>
   );

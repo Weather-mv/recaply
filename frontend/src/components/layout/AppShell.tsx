@@ -1,4 +1,4 @@
-import { ChevronRight, Clapperboard, Cpu, FolderKanban, ListTodo, Menu, Plus, Radio, Settings as Cog, Sparkles, TriangleAlert, X, Zap } from "lucide-react";
+import { BarChart3, ChevronRight, Clapperboard, Cpu, FolderKanban, ListTodo, Menu, Palette, Plus, Radio, Settings as Cog, Sparkles, TriangleAlert, X, Zap } from "lucide-react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { StatusDot } from "@/components/ui/viz";
@@ -15,11 +15,13 @@ const NAV = [
   { to: "/", label: "Studio", icon: Sparkles, end: true },
   { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/live", label: "Live Streams", icon: Radio },
-  { href: "/queue", label: "Queue", icon: ListTodo },
+  { to: "/queue", label: "Queue", icon: ListTodo },
+  { to: "/brand", label: "Brand Kit", icon: Palette },
+  { to: "/usage", label: "Usage", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Cog },
 ];
 
-const ROOT_CRUMB: Record<string, string> = { "/": "Studio", "/projects": "Projects", "/live": "Live Streams", "/settings": "Settings" };
+const ROOT_CRUMB: Record<string, string> = { "/": "Studio", "/projects": "Projects", "/live": "Live Streams", "/settings": "Settings", "/queue": "Queue", "/usage": "Usage", "/brand": "Brand Kit" };
 
 /** AI state for the sidebar and top bar: what answers, and whether the local model is up. */
 function useAi() {
@@ -77,11 +79,11 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </>
           );
           const base = "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors";
-          return n.to ? (
+          return (
             <NavLink
               key={n.label}
               to={n.to}
-              end={n.end}
+              end={"end" in n ? n.end : undefined}
               onClick={onNavigate}
               className={({ isActive: a }) => cn(base, a ? "bg-white/[.07] text-foreground" : "text-muted-foreground hover:bg-white/[.04] hover:text-foreground")}
             >
@@ -92,10 +94,6 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 </>
               )}
             </NavLink>
-          ) : (
-            <a key={n.label} href={n.href} className={cn(base, "text-muted-foreground hover:bg-white/[.04] hover:text-foreground")}>
-              {inner(false)}
-            </a>
           );
         })}
       </nav>
