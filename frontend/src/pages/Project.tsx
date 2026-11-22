@@ -1,10 +1,11 @@
-import { ArrowLeft, Cpu, Info, Layers, Loader2, Rows3, Wand2 } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Cpu, FileText, Info, Layers, Loader2, Palette, Rows3, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { BeatsPanel, ScoreDot } from "@/components/project/BeatsPanel";
 import { ClipsPanel } from "@/components/project/ClipsPanel";
 import { FailurePanel, PipelineStepper } from "@/components/project/PipelineStepper";
+import { BrandTab, CaptionsTab, SourceTimeline, TranscriptTab } from "@/components/project/StudioPanels";
 import { ClipCopy, ViralityBars } from "@/components/project/ViralityBars";
 import { VideoStage } from "@/components/project/VideoStage";
 import { Block, Timeline, Track } from "@/components/Timeline";
@@ -60,26 +61,25 @@ export default function Project() {
 
   if (gone || (error && error.status === 404)) {
     return (
-      <AppShell>
+      <AppShell crumbs={[{ label: "Projects", to: "/projects" }, { label: "Not found" }]}>
         <Card className="mx-auto mt-10 max-w-md p-8 text-center">
           <p className="text-lg font-bold">Project not found</p>
-          <Button asChild className="mt-4"><Link to="/">Back to projects</Link></Button>
+          <Button asChild className="mt-4"><Link to="/projects">Back to projects</Link></Button>
         </Card>
       </AppShell>
     );
   }
   if (!job) {
-    return <AppShell><div className="mx-auto mt-24 grid place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div></AppShell>;
+    return <AppShell crumbs={[{ label: "Projects", to: "/projects" }, { label: "Loading…" }]}><div className="mx-auto mt-24 grid place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div></AppShell>;
   }
 
   const res = job.result;
   const notes = (job.summary?.notes ?? res?.summary?.notes ?? []).filter((n) => /AI|LLM|local/i.test(n));
 
   return (
-    <AppShell wide>
+    <AppShell wide crumbs={[{ label: "Projects", to: "/projects" }, { label: job.title || "Project" }]}>
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Button asChild variant="ghost" size="sm"><Link to="/"><ArrowLeft /> Projects</Link></Button>
-        <h1 className="min-w-0 flex-1 truncate text-xl font-extrabold tracking-tight">{job.title || "Project"}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-xl font-bold tracking-tight">{job.title || "Project"}</h1>
         {res?.profile && (
           <Badge variant="outline" title={res.profile.reason}>
             <Layers className="size-3.5" /> {res.profile.label}
@@ -98,17 +98,17 @@ export default function Project() {
       {res && clip && (
         <>
           {notes.length > 0 && (
-            <p className="mb-4 flex items-start gap-2 rounded-lg border border-beat-build/40 bg-beat-build/10 p-3 text-sm">
-              <Info className="mt-0.5 size-4 shrink-0 text-beat-build" /> {notes.join(" ")}
+            <p className="mb-4 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm">
+              <Info className="mt-0.5 size-4 shrink-0 text-amber-300" /> {notes.join(" ")}
             </p>
           )}
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,1fr)]">
-            {/* left: the video and its timeline */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+            {/* left: the player */}
             <div className="min-w-0 space-y-4">
               <div className="flex items-start gap-3">
                 <ScoreDot score={clip.score} className="mt-0.5 h-10 min-w-10 text-base" />
                 <div className="min-w-0 flex-1">
-                  <h2 className="text-lg font-bold leading-snug">{clip.title || `Moment at ${clip.time}`}</h2>
+                  <h2 className="text-lg font-semibold leading-snug">{clip.title || `Moment at ${clip.time}`}</h2>
                   <p className="text-sm text-muted-foreground">{clip.reason}</p>
                 </div>
                 <Button asChild>
@@ -116,21 +116,50 @@ export default function Project() {
                 </Button>
               </div>
 
+              <div className="mx-auto max-w-4xl rounded-xl border border-white/10 p-2 shadow-[0_0_60px_-24px_hsl(var(--primary))]">
+                <VideoStage job={job} clip={clip} media={media} player={player} beat={active} onChanged={refresh} />
+              </div>
+
               {clip.virality && (
-                <Card className="grid gap-4 p-4 sm:grid-cols-[auto_1fr] sm:items-center">
+                <div className="surface grid gap-4 rounded-xl p-4 sm:grid-cols-[auto_1fr] sm:items-center">
                   <div className="text-center">
-                    <p className="text-4xl font-extrabold tabular">{Math.round(clip.virality.overall_virality)}</p>
-                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Virality</p>
+                    <p className="text-4xl font-bold tabular-nums">{Math.round(clip.virality.overall_virality)}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Virality</p>
                   </div>
                   <ViralityBars v={clip.virality} />
-                </Card>
+                </div>
               )}
+              <ClipCopy clip={clip} />
+            </div>
 
-              <VideoStage job={job} clip={clip} media={media} player={player} beat={active} onChanged={refresh} />
+            {/* right: the editor panel */}
+            <aside className="min-w-0">
+              <Tabs defaultValue="clips" className="surface flex flex-col rounded-xl p-3 xl:max-h-[calc(100vh-7.5rem)]">
+                <TabsList className="w-full justify-start overflow-x-auto">
+                  <TabsTrigger value="clips"><Clapperboard className="size-3.5" /> Clips · {clips.length}</TabsTrigger>
+                  <TabsTrigger value="transcript"><FileText className="size-3.5" /> Transcript</TabsTrigger>
+                  <TabsTrigger value="captions"><Captions className="size-3.5" /> Captions</TabsTrigger>
+                  <TabsTrigger value="brand"><Palette className="size-3.5" /> Brand Kit</TabsTrigger>
+                  <TabsTrigger value="beats"><AudioLines className="size-3.5" /> Beats</TabsTrigger>
+                </TabsList>
+                <div className="mt-1 min-h-0 flex-1 overflow-y-auto pr-1">
+                  <TabsContent value="clips"><ClipsPanel clips={clips} selected={clip.id} onSelect={(cid) => setSp({ clip: String(cid) }, { replace: true })} /></TabsContent>
+                  <TabsContent value="transcript"><TranscriptTab clip={clip} /></TabsContent>
+                  <TabsContent value="captions"><CaptionsTab jobId={job.id} clipId={clip.id} /></TabsContent>
+                  <TabsContent value="brand"><BrandTab jobId={job.id} /></TabsContent>
+                  <TabsContent value="beats"><BeatsPanel clip={clip} active={active} onSeek={seekBeat} /></TabsContent>
+                </div>
+              </Tabs>
+            </aside>
+          </div>
 
+          {/* bottom: the timelines */}
+          <div className="mt-5 space-y-3">
+            <SourceTimeline duration={res.source.duration} clips={clips} selected={clip.id} onSelect={(cid) => setSp({ clip: String(cid) }, { replace: true })} playhead={absTime} />
+            <div className="surface space-y-2 rounded-xl p-3">
               <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-muted-foreground"><Rows3 className="size-4" /> Timeline</h3>
-                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"><Rows3 className="size-4" /> Clip timeline</h3>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   Zoom
                   <input type="range" min={1} max={8} step={0.5} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label="Timeline zoom" className="w-28 accent-[hsl(var(--primary))]" />
                 </label>
@@ -159,27 +188,10 @@ export default function Project() {
                   ))}
                 </Track>
               </Timeline>
-              <ClipCopy clip={clip} />
-              <p className="text-sm text-muted-foreground">
-                {fmtTime(clip.start)} – {fmtTime(clip.end)} of the video · {Math.round(clip.duration)} s · click the timeline or a beat to jump
+              <p className="text-xs text-muted-foreground">
+                {fmtTime(clip.start)} – {fmtTime(clip.end)} of the video · {Math.round(clip.duration)} s · click a track or a beat to jump
               </p>
             </div>
-
-            {/* right: story beats and clips */}
-            <aside className="min-w-0">
-              <Tabs defaultValue="beats">
-                <TabsList>
-                  <TabsTrigger value="beats">Story beats</TabsTrigger>
-                  <TabsTrigger value="clips">Clips · {clips.length}</TabsTrigger>
-                </TabsList>
-                <TabsContent value="beats">
-                  <BeatsPanel clip={clip} active={active} onSeek={seekBeat} />
-                </TabsContent>
-                <TabsContent value="clips">
-                  <ClipsPanel clips={clips} selected={clip.id} onSelect={(cid) => setSp({ clip: String(cid) }, { replace: true })} />
-                </TabsContent>
-              </Tabs>
-            </aside>
           </div>
         </>
       )}

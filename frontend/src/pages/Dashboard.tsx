@@ -1,17 +1,14 @@
-import { AlertCircle, ArrowRight, AudioLines, CheckCircle2, Clapperboard, FileVideo, Layers, Loader2, Sparkles, Trophy, Upload } from "lucide-react";
-import { useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { AlertCircle, ArrowRight, Clapperboard, Layers, Loader2, Sparkles, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
-import { PipelineStepper } from "@/components/project/PipelineStepper";
-import { isActive, useBoot, useProjects } from "@/hooks/data";
-import { api, ApiError, thumbUrl } from "@/lib/api";
-import { STAGE_LABEL } from "@/lib/stages";
-import type { Project } from "@/lib/types";
-import { ago, cn, fmtTime } from "@/lib/utils";
+import { SystemWidget } from "@/components/layout/SystemWidget";
+import { ProjectCard } from "@/components/project/ProjectViews";
+import { useBoot, useProjects } from "@/hooks/data";
+import { api, ApiError } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const LENGTHS = [
   { key: "auto", label: "Length: auto" },
@@ -31,6 +28,9 @@ function Composer() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
+  const urlBox = useRef<HTMLInputElement>(null);
+  const loc = useLocation();
+  useEffect(() => urlBox.current?.focus(), [(loc.state as { focus?: number } | null)?.focus]);
   const canCreate = session?.plan.can_create !== false;
 
   const start = async (e: React.FormEvent) => {
@@ -86,19 +86,19 @@ function Composer() {
         const f = e.dataTransfer.files?.[0];
         if (f) void upload(f);
       }}
-      className={cn("rounded-[1.75rem] border bg-card p-3 shadow-lg transition-colors", drag && "border-primary ring-2 ring-primary/40")}
+      className={cn("surface rounded-2xl p-2 transition-shadow focus-within:glow", drag && "glow")}
     >
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
-          <Layers className="pointer-events-none absolute left-5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+          <Layers className="pointer-events-none absolute left-5 top-1/2 size-5 -translate-y-1/2 text-primary" />
           <Input
-            autoFocus
+            ref={urlBox}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Paste a link… YouTube, Twitch, Kick"
             aria-label="Video link"
             spellCheck={false}
-            className="h-14 border-0 bg-transparent pl-14 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-14 border-0 bg-transparent pl-14 text-base shadow-none hover:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
         <div className="flex gap-2">
@@ -112,7 +112,7 @@ function Composer() {
           </Button>
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-1 gap-2 border-t px-1 pt-3 sm:grid-cols-3">
+      <div className="mt-1 grid grid-cols-1 gap-2 border-t px-1 pt-3 pb-1 sm:grid-cols-3">
         <Select value={profile} onChange={(e) => setProfile(e.target.value)} aria-label="Content type">
           <option value="auto">Content: auto-detect</option>
           {session?.profiles
@@ -148,97 +148,56 @@ function Composer() {
   );
 }
 
-function StateBadge({ p }: { p: Project }) {
-  if (p.state === "ready") return <Badge variant="success"><CheckCircle2 className="size-3.5" /> Ready</Badge>;
-  if (p.state === "failed") return <Badge variant="destructive"><AlertCircle className="size-3.5" /> Failed</Badge>;
-  if (p.state === "cancelled") return <Badge variant="secondary">Cancelled</Badge>;
-  return <Badge><Loader2 className="size-3.5 animate-spin" /> {p.state === "queued" ? "Queued" : "Working"}</Badge>;
-}
-
-function ProjectCard({ p }: { p: Project }) {
-  const thumb = thumbUrl(p.thumb, p.extractor);
-  const active = isActive(p);
-  return (
-    <Link to={`/p/${p.id}`} className="group block focus-visible:outline-none">
-      <Card className="overflow-hidden transition-all group-hover:-translate-y-0.5 group-hover:border-primary/50 group-hover:shadow-lg group-focus-visible:ring-2 group-focus-visible:ring-ring">
-        <div className="relative aspect-video bg-gradient-to-br from-primary/25 via-secondary to-card">
-          {thumb ? (
-            <img src={thumb} alt="" loading="lazy" className="size-full object-cover" />
-          ) : (
-            <div className="grid size-full place-items-center text-muted-foreground">{p.extractor ? <Clapperboard className="size-10" /> : <FileVideo className="size-10" />}</div>
-          )}
-          {p.duration ? <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-2 py-0.5 text-sm font-semibold tabular text-white">{fmtTime(p.duration)}</span> : null}
-          <span className="absolute left-2 top-2"><StateBadge p={p} /></span>
-        </div>
-        <div className="space-y-3 p-4">
-          <h3 className="line-clamp-2 min-h-[2.75rem] text-base font-semibold leading-snug">{p.title || "Untitled"}</h3>
-          {active ? (
-            <div className="space-y-2">
-              <PipelineStepper stages={p.stages} compact />
-              <p className="truncate text-sm text-muted-foreground">{p.stage || "Starting"}</p>
-            </div>
-          ) : p.state === "failed" ? (
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-destructive">{p.failed_stage ? `Failed while ${STAGE_LABEL[p.failed_stage].toLowerCase()}` : "Failed"}</p>
-              <p className="line-clamp-2 text-sm text-destructive/90">{p.error || "Something went wrong."}</p>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5"><Clapperboard className="size-4" /> {p.clips} clips</span>
-              <span className="inline-flex items-center gap-1.5"><AudioLines className="size-4" /> {p.beats} beats</span>
-              {p.best != null && <span className="inline-flex items-center gap-1.5 text-beat-payoff"><Trophy className="size-4" /> {Math.round(p.best)}</span>}
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-            {p.profile?.label ? <Badge variant="outline" className="max-w-[70%] truncate">{p.profile.label}</Badge> : <span>{active ? "Detecting content type…" : ""}</span>}
-            <span>{ago(p.created)}</span>
-          </div>
-        </div>
-      </Card>
-    </Link>
-  );
-}
-
 export default function Dashboard() {
   const { session, error: bootError } = useBoot();
   const { data: projects, loading } = useProjects();
   const first = session?.user.name?.split(" ")[0];
+  const recent = (projects ?? []).slice(0, 6);
+  const ready = (projects ?? []).filter((p) => p.state === "ready");
+  const clips = ready.reduce((n, p) => n + p.clips, 0);
 
   return (
     <AppShell>
-      <section className="mx-auto max-w-3xl pb-10 pt-6 text-center">
-        <p className="mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-semibold text-muted-foreground">
-          <Sparkles className="size-4 text-primary" /> Podcasts, gaming, IRL, webinars. Anything with a story.
+      <section className="mx-auto max-w-3xl pb-10 pt-4 text-center">
+        <p className="mb-4 inline-flex items-center gap-2 rounded-full border bg-white/[.03] px-3 py-1 text-xs font-medium text-muted-foreground">
+          <Sparkles className="size-3.5 text-primary" /> Podcasts, gaming, IRL, webinars. Anything with a story.
         </p>
-        <h1 className="mb-8 text-4xl font-extrabold tracking-tight sm:text-5xl">{first ? `Hey ${first}, what are we clipping today?` : "What are we clipping today?"}</h1>
+        <h1 className="text-gradient mb-8 text-4xl font-bold tracking-tight sm:text-5xl">{first ? `Hey ${first}, what are we clipping today?` : "What are we clipping today?"}</h1>
         <div className="text-left">
           <Composer />
         </div>
-        <p className="mt-4 text-sm text-muted-foreground">Only clip videos you own or have permission to use, and follow each platform's rules when you post.</p>
+        <p className="mt-4 text-xs text-muted-foreground">Only clip videos you own or have permission to use, and follow each platform's rules when you post.</p>
       </section>
 
       {bootError && !bootError.needsLogin && <p role="alert" className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">{bootError.message}</p>}
 
-      <section>
-        <div className="mb-4 flex items-end justify-between">
-          <h2 className="text-xl font-bold">Recent projects</h2>
-          {projects && projects.length > 0 && <span className="text-sm text-muted-foreground">{projects.length} shown</span>}
-        </div>
-        {loading && !projects ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => <div key={i} className="h-72 animate-pulse rounded-lg bg-secondary" />)}
+      <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <section>
+          <div className="mb-4 flex items-end justify-between">
+            <h2 className="text-lg font-semibold">Recent projects</h2>
+            <Link to="/projects" className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">View all <ArrowRight className="size-3.5" /></Link>
           </div>
-        ) : projects && projects.length ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{projects.map((p) => <ProjectCard key={p.id} p={p} />)}</div>
-        ) : (
-          <Card className="grid place-items-center gap-3 p-12 text-center">
-            <Clapperboard className="size-10 text-muted-foreground" />
-            <p className="text-lg font-semibold">No projects yet</p>
-            <p className="max-w-sm text-sm text-muted-foreground">Paste a link above. Clipforge finds the best moments, labels the story beats and gets them ready to export.</p>
-            <ArrowRight className="size-5 -rotate-90 text-primary" />
-          </Card>
-        )}
-      </section>
+          {loading && !projects ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="h-60 animate-pulse rounded-xl bg-white/[.04]" />)}</div>
+          ) : recent.length ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{recent.map((p) => <ProjectCard key={p.id} p={p} />)}</div>
+          ) : (
+            <div className="surface grid place-items-center gap-3 rounded-2xl p-12 text-center">
+              <span className="grid size-12 place-items-center rounded-2xl bg-primary/15"><Clapperboard className="size-6 text-primary" /></span>
+              <p className="text-lg font-semibold">No projects yet</p>
+              <p className="max-w-sm text-sm text-muted-foreground">Paste a link above. Clipforge finds the best moments, labels the story beats and gets them ready to export.</p>
+            </div>
+          )}
+        </section>
+
+        <aside className="space-y-4">
+          <SystemWidget />
+          <div className="surface grid grid-cols-2 divide-x divide-white/10 rounded-2xl text-center">
+            <div className="p-4"><p className="text-2xl font-bold tabular-nums">{ready.length}</p><p className="text-xs text-muted-foreground">Projects done</p></div>
+            <div className="p-4"><p className="text-2xl font-bold tabular-nums">{clips}</p><p className="text-xs text-muted-foreground">Clips found</p></div>
+          </div>
+        </aside>
+      </div>
     </AppShell>
   );
 }

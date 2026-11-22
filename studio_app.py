@@ -77,6 +77,13 @@ def capabilities():
     return jsonify({**clip_routes.short_choices(), "languages": [{"key": k, "label": v} for k, v in LANGUAGES.items()]})
 
 
+@bp.route("/api/studio/system")
+def system_stats():
+    """CPU / RAM / GPU load for the dashboard widget (this PC; nothing leaves it)."""
+    from recaply import sysmon
+    return jsonify(sysmon.snapshot())
+
+
 def _project(job: dict) -> dict:
     """One dashboard row. `profile` is None until the analysis has decided what the video is."""
     result = job.get("result") or {}

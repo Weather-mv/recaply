@@ -168,12 +168,12 @@ export default function Director() {
 
   // ---- not ready states
   if (gone || (error && error.status === 404)) {
-    return <AppShell><Card className="mx-auto mt-10 max-w-md p-8 text-center"><p className="text-lg font-bold">Project not found</p><Button asChild className="mt-4"><Link to="/">Back to projects</Link></Button></Card></AppShell>;
+    return <AppShell crumbs={[{ label: "Projects", to: "/projects" }, { label: "Not found" }]}><Card className="mx-auto mt-10 max-w-md p-8 text-center"><p className="text-lg font-bold">Project not found</p><Button asChild className="mt-4"><Link to="/projects">Back to projects</Link></Button></Card></AppShell>;
   }
-  if (!job || !caps) return <AppShell><div className="mx-auto mt-24 grid place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div></AppShell>;
+  if (!job || !caps) return <AppShell crumbs={[{ label: "Projects", to: "/projects" }, { label: "Loading…" }]}><div className="mx-auto mt-24 grid place-items-center"><Loader2 className="size-8 animate-spin text-primary" /></div></AppShell>;
   if (!clip) {
     return (
-      <AppShell>
+      <AppShell crumbs={[{ label: "Projects", to: "/projects" }, { label: "Director" }]}>
         <Card className="mx-auto mt-10 max-w-md space-y-3 p-8 text-center">
           <p className="text-lg font-bold">{job.state === "running" || job.state === "queued" ? "Still analysing…" : "That clip doesn't exist"}</p>
           <Button asChild><Link to={`/p/${job.id}`}>Back to the project</Link></Button>
@@ -185,7 +185,7 @@ export default function Director() {
   const short = job.cuts[`s${clip.id}`];
 
   return (
-    <AppShell wide>
+    <AppShell wide crumbs={[{ label: "Projects", to: "/projects" }, { label: job.title || "Project", to: `/p/${job.id}?clip=${clip.id}` }, { label: "Director" }]}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Button asChild variant="ghost" size="sm"><Link to={`/p/${job.id}?clip=${clip.id}`}><ArrowLeft /> Project</Link></Button>
         <Badge><Film className="size-3.5" /> Director</Badge>

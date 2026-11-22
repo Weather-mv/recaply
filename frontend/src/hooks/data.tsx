@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "@/lib/api";
 import { isActive } from "@/lib/status";
-import type { Capabilities, Health, Job, LiveReply, Project, Session } from "@/lib/types";
+import type { Capabilities, Health, Job, LiveReply, Project, Session, SystemStats } from "@/lib/types";
 
 /** Poll `load` every `ms` (and when the tab comes back); `ms` may change with the data (faster while jobs run). */
 function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, ms: (data: T | null) => number) {
@@ -84,6 +84,30 @@ export function useProjects() {
 /** Live channels and their feed, refreshed every few seconds (404 = live mode isn't offered on this server). */
 export function useLive() {
   return usePolling<LiveReply>((signal) => api<LiveReply>("/api/live", { signal }), (d) => (d?.channels.some((c) => c.state === "recording" || c.state === "waiting") ? 3000 : 10000));
+}
+
+const HISTORY = 40;
+
+/** CPU / RAM / GPU load every 3 s, with the last few readings kept for the sparklines. */
+export function useSystem() {
+  const hist = useRef<{ cpu: number[]; ram: number[]; gpu: number[] }>({ cpu: [], ram: [], gpu: [] });
+  const [, bump] = useState(0);
+  const poll = usePolling<SystemStats>(
+    async (signal) => {
+      const d = await api<SystemStats>("/api/studio/system", { signal });
+      const push = (k: "cpu" | "ram" | "gpu", v: number | null | undefined) => {
+        if (v == null) return;
+        hist.current[k] = [...hist.current[k], v].slice(-HISTORY);
+      };
+      push("cpu", d.cpu);
+      push("ram", d.ram?.percent);
+      push("gpu", d.gpu?.percent);
+      bump((n) => n + 1);
+      return d;
+    },
+    () => 3000,
+  );
+  return { ...poll, history: hist.current };
 }
 
 export function useHealth() {

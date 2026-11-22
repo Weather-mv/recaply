@@ -280,3 +280,11 @@ export interface SettingsReply {
   ai: { provider: string; order: string[]; ready: boolean; ollama: Health["ollama"] };
   providers: string[];
 }
+
+/** CPU / RAM / GPU load of this PC (recaply/sysmon.py). Each part is null when the PC can't tell. */
+export interface SystemStats {
+  cpu: number | null;
+  ram: { percent: number; used_gb: number; total_gb: number } | null;
+  gpu: { name: string; percent: number; mem_percent: number; used_gb: number; total_gb: number } | null;
+  ts: number;
+}
