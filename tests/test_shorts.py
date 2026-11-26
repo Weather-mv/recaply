@@ -182,7 +182,7 @@ def test_wide_output_passes_through():
 # ---------- brand kit ----------
 
 def test_brand_kit_is_cleaned_and_round_trips():
-    kit = brand.BrandKit(accent="red", logo_size=9, logo_pos="middle", caption_style="nope", font="comic")
+    kit = brand.BrandKit(accent="red", logo_size=9, logo_pos="middle", caption_style="nope", font="wingdings")
     c = kit.clean()
     assert c.accent == "#0865ff" and c.logo_size == 0.4 and c.logo_pos == "tr"
     assert c.caption_style == "bold" and c.font == "default"

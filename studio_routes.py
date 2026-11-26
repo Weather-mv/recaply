@@ -86,6 +86,60 @@ def clip_words(job_id, cid):
                    short=cuts.get(runner.short_key(cid)))
 
 
+@bp.route("/api/clipjob/<job_id>/clip/<int:cid>/layout")
+def clip_layout(job_id, cid):
+    """
+    Where the facecam, gameplay, face and action are in this clip's cut file,
+    so the Director previews every layout the way the export will draw it.
+    Measured once per cut file (~10 s) and kept next to it.
+    """
+    import json
+    import os
+
+    import editor
+    from recaply.render import reframe
+    job = clip_routes._owned(job_id)
+    _clip(job, cid)
+    cut = (job.get("cuts") or {}).get(str(cid)) or {}
+    if cut.get("state") != "done" or not cut.get("file"):
+        return jsonify(error="Cut this clip first: the layout is found from its picture."), 409
+    path = os.path.join(runner.job_dir(job_id), cut["file"])
+    if not os.path.isfile(path):
+        return jsonify(error="The cut file is gone. Cut the clip again."), 404
+    cache = path + ".layout2.json"                # bump when analyse() returns new fields
+    if os.path.isfile(cache) and os.path.getmtime(cache) >= os.path.getmtime(path):
+        try:
+            with open(cache, encoding="utf-8") as f:
+                return jsonify(json.load(f))
+        except (OSError, ValueError):
+            pass
+    meta = editor.probe(path)
+    if not meta.get("video"):
+        return jsonify(error="This clip has no picture."), 422
+    info = {**reframe.analyse(path, meta), "w": meta["w"], "h": meta["h"]}
+    profile = ((job.get("result") or {}).get("profile") or {}).get("key")
+    from recaply.profiles.base import get_profile
+    try:
+        pref = get_profile(profile).reframe if profile else "face"
+    except Exception:  # noqa: BLE001
+        pref = "face"
+    # what "auto" will pick on export (same order as reframe.choose)
+    if info["cam"]:
+        info["auto"] = "split"
+    elif pref in reframe.CAM_LAYOUTS:
+        info["auto"] = "action"
+    elif pref == "face":
+        info["auto"] = "face" if info["face_keys"] else "fit"
+    else:
+        info["auto"] = pref if pref in reframe.STRATEGIES else "fit"
+    try:
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump(info, f)
+    except OSError:
+        pass
+    return jsonify(info)
+
+
 @bp.route("/api/clipjob/<job_id>/clip/<int:cid>/edit", methods=["POST"])
 def clip_edit(job_id, cid):
     job = clip_routes._owned(job_id)

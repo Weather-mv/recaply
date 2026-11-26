@@ -13,9 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useJob } from "@/hooks/data";
+import { useHealth, useJob } from "@/hooks/data";
 import { pickMedia, usePlayer, usePlayerKeys } from "@/hooks/usePlayer";
-import { ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { BEAT_META, beatAt } from "@/lib/beats";
 import type { Beat, Job } from "@/lib/types";
 import { cn, fmtTime } from "@/lib/utils";
@@ -47,6 +47,23 @@ export default function Project() {
   const { job, error, gone, refresh } = useJob(id);
   const [sp, setSp] = useSearchParams();
   const [zoom, setZoom] = useState(1);
+  const health = useHealth().data;
+  const aiReady = !!health && (health.llm !== "ollama" || (!!health.ollama?.running && !!health.ollama?.model_ready));
+  const [rescoring, setRescoring] = useState(false);
+  const [rescoreErr, setRescoreErr] = useState("");
+  const rescore = async () => {
+    if (!job) return;
+    setRescoring(true);
+    setRescoreErr("");
+    try {
+      await api(`/api/clipjob/${job.id}/retry`, { json: {} });
+      refresh();
+    } catch (e) {
+      setRescoreErr(e instanceof ApiError ? e.message : "Couldn't start it.");
+    } finally {
+      setRescoring(false);
+    }
+  };
 
   const clips = job?.result?.clips ?? [];
   const clipId = Number(sp.get("clip")) || clips[0]?.id || 0;
@@ -74,7 +91,14 @@ export default function Project() {
   }
 
   const res = job.result;
-  const notes = (job.summary?.notes ?? res?.summary?.notes ?? []).filter((n) => /AI|LLM|local/i.test(n));
+  // Only the notes about the AI scorer belong in this banner (chat / signal notes stay in the job's log).
+  // Case-sensitive on purpose: /ai/i also matched "available" and the "Local" in a Windows temp path.
+  const aiNotes = (job.summary?.notes ?? res?.summary?.notes ?? []).filter((n) => /\bAI\b|\bLLM\b|Ollama/.test(n));
+  const notes = aiNotes.filter((n, i) => aiNotes.indexOf(n) === i && !(/^no LLM configured/.test(n) && aiNotes.length > 1));
+  // The notes were written when the project was analysed. Once the AI is up, "AI not ready" is old news:
+  // offer to score the project again instead of repeating it.
+  const ruleScored = !!res && !res.scorer.startsWith("llm");
+  const staleAi = ruleScored && aiReady;
 
   return (
     <AppShell wide crumbs={[{ label: "Projects", to: "/projects" }, { label: job.title || "Project" }]}>
@@ -97,9 +121,20 @@ export default function Project() {
 
       {res && clip && (
         <>
-          {notes.length > 0 && (
+          {staleAi && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/10 p-3 text-sm">
+              <Info className="size-4 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">These clips were scored by rules because the AI wasn't ready when this video was analysed. The AI is ready now.</span>
+              {rescoreErr && <span className="text-destructive">{rescoreErr}</span>}
+              <Button size="sm" onClick={rescore} disabled={rescoring}>
+                {rescoring ? <Loader2 className="animate-spin" /> : <Wand2 />} Score again with AI
+              </Button>
+            </div>
+          )}
+          {!staleAi && notes.length > 0 && (
             <p className="mb-4 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm">
-              <Info className="mt-0.5 size-4 shrink-0 text-amber-300" /> {notes.join(" ")}
+              <Info className="mt-0.5 size-4 shrink-0 text-amber-300" />
+              <span className="space-y-1">{notes.map((n) => <span key={n} className="block">{n}</span>)}</span>
             </p>
           )}
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">

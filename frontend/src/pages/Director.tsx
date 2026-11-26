@@ -1,6 +1,8 @@
 import { ArrowLeft, AudioLines, Film, Loader2, ShieldAlert, Type } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { CamBoxEditor } from "@/components/director/CamBoxEditor";
+import { CaptionsPanel } from "@/components/director/CaptionsPanel";
 import { ExportPanel } from "@/components/director/ExportPanel";
 import { TrimFields } from "@/components/director/TrimFields";
 import { ReframeCanvas } from "@/components/director/ReframeCanvas";
@@ -17,7 +19,8 @@ import { useBoot, useJob, waitForJob } from "@/hooks/data";
 import { pickMedia, usePlayer, usePlayerKeys } from "@/hooks/usePlayer";
 import { api, ApiError } from "@/lib/api";
 import { BEAT_META } from "@/lib/beats";
-import type { Layout } from "@/lib/reframe";
+import { bandY, loadCaptionFont, resolveStyle } from "@/lib/captions";
+import { CAM_LAYOUTS, resolveLayout, type Layout, type LayoutInfo } from "@/lib/reframe";
 import type { ShortOptions, Word, WordsReply } from "@/lib/types";
 import { cn, fmtPrecise } from "@/lib/utils";
 import { activeWordIndex, cutRanges } from "@/lib/words";
@@ -45,7 +48,7 @@ function WordChip({ w, cut, active, onClick }: { w: Word; cut: boolean; active: 
   );
 }
 
-const DEFAULTS: ShortOptions = { export: "shorts", layout: "auto", captions: "bold", hook: true, emoji: false, tighten: false, broll: false, translate: "", teaser: true, bgm: "", bgm_level: 0.32 };
+const DEFAULTS: ShortOptions = { export: "shorts", layout: "auto", split_ratio: 0.42, cam_box: null, captions: "bold", hook: true, context: true, context_text: "", emoji: false, tighten: false, broll: false, translate: "", teaser: true, bgm: "", bgm_level: 0.32 };
 
 export default function Director() {
   const { id, cid } = useParams();
@@ -107,7 +110,71 @@ export default function Director() {
       return n;
     });
   }, []);
-  const onWord = (w: Word) => (mode === "cut" ? toggleWord(w) : player.seek(w.s));
+  const onWord = (w: Word) => (mode === "cut" ? toggleWord(w) : player.seek(w.s)); // timeline chips: "Edit text" seeks too
+
+  // ---- caption text typed in the studio (by word id; "" hides the word). Audio is untouched.
+  const [edits, setEdits] = useState<Map<number, string>>(new Map());
+  useEffect(() => setEdits(new Map()), [ws.words]); // a new transcript (another clip) starts clean
+  const editWord = useCallback((w: Word, text: string) => {
+    const t = text.split(/\s+/).filter(Boolean).join(" ").slice(0, 40);
+    setEdits((m) => {
+      const n = new Map(m);
+      if (t === w.w) n.delete(w.i);
+      else n.set(w.i, t);
+      return n;
+    });
+  }, []);
+  /** the words as the captions show them */
+  const captionWords = useMemo(
+    () => (edits.size ? words.flatMap((w) => (edits.has(w.i) ? (edits.get(w.i) ? [{ ...w, w: edits.get(w.i)! }] : []) : [w])) : words),
+    [words, edits],
+  );
+  /** what the render needs: each edited word by where it starts in the source video */
+  const withEdits = (o: ShortOptions): ShortOptions =>
+    clip && edits.size ? { ...o, caption_edits: words.filter((w) => edits.has(w.i)).map((w) => ({ t: Math.round((clip.start + w.s) * 1000) / 1000, w: edits.get(w.i)! })) } : o;
+
+  // ---- what's on screen (facecam, face path, action), measured once from the cut
+  const [layoutInfo, setLayoutInfo] = useState<LayoutInfo | null>(null);
+  const [layoutState, setLayoutState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [layoutError, setLayoutError] = useState("");
+  const [drawingCam, setDrawingCam] = useState(false);
+  const layoutFor = useRef("");
+  const cutInfo = job?.cuts[String(clipId)];
+  const cutFile = cutInfo?.state === "done" ? cutInfo.file : undefined;
+  useEffect(() => {
+    if (!id || !cutFile) return;
+    const key = `${id}:${clipId}:${cutFile}`;
+    if (layoutFor.current === key) return;
+    layoutFor.current = key;
+    setLayoutState("loading");
+    api<LayoutInfo>(`/api/clipjob/${id}/clip/${clipId}/layout`)
+      .then((r) => {
+        setLayoutInfo(r);
+        setLayoutState("ready");
+      })
+      .catch((e) => {
+        layoutFor.current = "";
+        setLayoutState("error");
+        setLayoutError(e instanceof ApiError ? e.message : "Couldn't look at the picture");
+      });
+  }, [id, clipId, cutFile]);
+
+  // ---- caption look: preset + the Captions panel's changes, drawn with the export's font
+  const [panel, setPanel] = useState<"export" | "captions">("export");
+  const capStyle = useMemo(() => {
+    const preset = caps?.captions.find((c) => c.key === options.captions)?.style ?? caps?.captions.find((c) => c.key === "bold")?.style;
+    return resolveStyle(preset, options.caption_style);
+  }, [caps, options.captions, options.caption_style]);
+  const [capFont, setCapFont] = useState("'Arial Black', Arial, sans-serif");
+  const fontKey = options.caption_style?.font || "default";
+  useEffect(() => {
+    let live = true;
+    loadCaptionFont(fontKey).then((f) => live && setCapFont(f));
+    return () => {
+      live = false;
+    };
+  }, [fontKey]);
+  const autoY = bandY(resolveLayout(options.layout as Layout, layoutInfo, options.cam_box), options.split_ratio);
 
   const waveform = useWaveform(media, clip?.duration ?? 0);
   const getVideo = player.el;
@@ -132,7 +199,7 @@ export default function Director() {
     setPreviewing(true);
     setPreviewError("");
     try {
-      await api(`/api/clipjob/${job.id}/preview`, { json: { id: clip.id, options, ...(trimmed ? { start: trimmed.start, end: trimmed.end } : {}) } });
+      await api(`/api/clipjob/${job.id}/preview`, { json: { id: clip.id, options: withEdits(options), ...(trimmed ? { start: trimmed.start, end: trimmed.end } : {}) } });
       refresh();
     } catch (e) {
       setPreviewError(e instanceof ApiError ? e.message : "Couldn't start the preview.");
@@ -157,7 +224,7 @@ export default function Director() {
         });
       }
       setBusy("Starting the export…");
-      await api(`/api/clipjob/${job.id}/shorts`, { json: { ids: [clip.id], options, ...(trimmed && !deleted.size ? { trim: trimmed } : {}) } });
+      await api(`/api/clipjob/${job.id}/shorts`, { json: { ids: [clip.id], options: withEdits(options), ...(trimmed && !deleted.size ? { trim: trimmed } : {}) } });
       refresh();
     } catch (e) {
       setExportError(e instanceof ApiError ? e.message : "The export didn't start.");
@@ -210,6 +277,9 @@ export default function Director() {
               onSelectFillers={() => setDeleted((d) => new Set([...d, ...fillers]))}
               onReset={() => setDeleted(new Set())}
               removedSeconds={removed}
+              edits={edits}
+              onEdit={editWord}
+              onResetEdits={() => setEdits(new Map())}
             />
           ) : (
             <div className="grid h-full place-items-center rounded-lg border bg-card p-6 text-center">
@@ -229,14 +299,21 @@ export default function Director() {
               getVideo={getVideo}
               hasPicture={!!media?.video}
               layout={options.layout as Layout}
-              words={words}
+              info={layoutInfo}
+              ratio={options.split_ratio}
+              camBox={options.cam_box}
+              words={captionWords}
               time={player.time}
               showCaptions={options.captions !== "none"}
+              capStyle={capStyle}
+              capFont={capFont}
               hook={clip.hook}
               showHook={options.hook}
+              stakes={options.context ? options.context_text || clip.context || "" : ""}
               safeZone={safeZone}
               onCut={startCut}
               cutting={cuttingNow}
+              onMoveCaptions={(p) => setOptions((o) => ({ ...o, caption_style: { ...o.caption_style, x: p.x, y: p.y } }))}
             />
           </div>
           <div className="flex w-full items-center justify-center gap-3">
@@ -252,7 +329,35 @@ export default function Director() {
         </div>
 
         {/* export */}
-        <div className="h-[560px] min-h-0 lg:h-auto">
+        <div className="flex h-[560px] min-h-0 flex-col gap-2 lg:h-auto">
+          <div role="tablist" aria-label="Director panels" className="grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1">
+            {([["export", "Layout & export", Film], ["captions", "Captions", Type]] as const).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={panel === key}
+                onClick={() => setPanel(key)}
+                className={cn("inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-semibold transition-colors", panel === key ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground")}
+              >
+                <Icon className="size-4" /> {label}
+              </button>
+            ))}
+          </div>
+          {panel === "captions" && (
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-card p-4">
+              <CaptionsPanel
+                caps={caps}
+                options={options}
+                onChange={setOptions}
+                editCount={edits.size}
+                onEditWords={() => setMode("text")}
+                onUndoEdits={() => setEdits(new Map())}
+                autoY={autoY}
+              />
+            </div>
+          )}
+          <div className={cn("min-h-0 flex-1", panel !== "export" && "hidden")}>
           <ExportPanel
             jobId={job.id}
             caps={caps}
@@ -269,7 +374,27 @@ export default function Director() {
             previewError={previewError}
             publishClip={session?.desktop ? clip : undefined}
             canExport={job.state !== "queued" && job.state !== "running" && ws.status !== "loading"}
+            stakes={clip.context || ""}
+            hookScore={clip.hook_score}
+            hookReason={clip.hook_reason}
+            layoutInfo={layoutInfo}
+            layoutState={layoutState}
+            layoutError={layoutError}
+            onDrawCam={() => {
+              getVideo()?.pause();
+              setDrawingCam(true);
+            }}
           />
+          {drawingCam && (
+            <CamBoxEditor
+              getVideo={getVideo}
+              value={options.cam_box}
+              detected={layoutInfo?.cam ?? null}
+              onSave={(box) => setOptions((o) => ({ ...o, cam_box: box, layout: o.layout === "auto" || CAM_LAYOUTS.includes(o.layout as Layout) ? o.layout : "split" }))}
+              onClose={() => setDrawingCam(false)}
+            />
+          )}
+          </div>
         </div>
       </div>
 
@@ -298,7 +423,7 @@ export default function Director() {
           </Track>
           <Track label="Text" icon={<Type className="size-4" />} height={48}>
             {words.map((w) => (
-              <WordChip key={w.i} w={w} cut={deleted.has(w.i)} active={w.i === activeId} onClick={() => onWord(w)} />
+              <WordChip key={w.i} w={edits.has(w.i) ? { ...w, w: edits.get(w.i) || "·" } : w} cut={deleted.has(w.i)} active={w.i === activeId} onClick={() => onWord(w)} />
             ))}
             {!words.length && <span className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">{ws.status === "loading" ? "Reading the transcript…" : "No transcript for this clip"}</span>}
           </Track>

@@ -1,5 +1,5 @@
 import { AudioLines, Loader2, Pause, Play, Scissors } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { MediaSel, Player } from "@/hooks/usePlayer";
 import { api, ApiError } from "@/lib/api";
@@ -32,6 +32,25 @@ export function VideoStage({ job, clip, media, player, beat, onChanged }: Props)
     }
   };
 
+  // A cut error is ffmpeg's raw output (long stream URLs); say it in a line instead.
+  const cutError = (e?: string | null) => {
+    const t = e || "";
+    if (/403|Forbidden/i.test(t)) return "YouTube refused the download this time. Try again.";
+    if (/getaddrinfo|resolve|network|timed? ?out/i.test(t)) return "Couldn't reach the video site. Check the internet connection and try again.";
+    return t ? "The video couldn't be fetched. Try again." : "";
+  };
+
+  // Links are analysed from their audio only, so the picture isn't on disk yet: fetch the clip (720p) the first
+  // time it's opened. A cut that failed earlier (an old visit) is retried once; a clip is tried once per visit.
+  const tried = useRef(new Set<string>());
+  useEffect(() => {
+    const key = `${job.id}:${clip.id}`;
+    if (job.state !== "ready" || job.media.source || (cut && cut.state !== "failed") || tried.current.has(key)) return;
+    tried.current.add(key);
+    void startCut();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id, job.state, job.media.source, clip.id, cut]);
+
   return (
     <div className="space-y-2">
       <div className="group relative aspect-video overflow-hidden rounded-lg border bg-black">
@@ -48,10 +67,17 @@ export function VideoStage({ job, clip, media, player, beat, onChanged }: Props)
 
         {media && !media.video && (
           <div className="grid size-full place-items-center bg-gradient-to-br from-primary/20 to-black text-white/70">
-            <div className="text-center">
-              <AudioLines className="mx-auto mb-2 size-12" />
-              <p className="text-base font-semibold">Audio preview</p>
-              <p className="text-sm text-white/60">Cut the clip to see the picture too.</p>
+            <div className="max-w-md px-6 text-center">
+              <button type="button" onClick={player.toggle} disabled={!player.ready} aria-label={player.playing ? "Pause" : "Play"}
+                className="mx-auto mb-4 grid size-16 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl transition-transform hover:scale-105 disabled:opacity-60">
+                {player.playing ? <Pause className="size-7" /> : <Play className="size-7 translate-x-0.5" />}
+              </button>
+              <p className="flex items-center justify-center gap-2 text-base font-semibold">
+                {cutting ? <Loader2 className="size-5 animate-spin" /> : <AudioLines className="size-5" />}
+                {cutting ? "Getting the video…" : "Audio preview"}
+              </p>
+              <p className="text-sm text-white/60">{cutting ? "You can listen now; the picture appears here in a moment." : cut?.state === "failed" ? cutError(cut.error) : "Cut the clip to see the picture too."}</p>
+              {!cutting && <Button size="sm" className="mt-3" onClick={startCut}><Scissors /> {cut?.state === "failed" ? "Try again" : "Get the video"}</Button>}
             </div>
           </div>
         )}
@@ -65,7 +91,7 @@ export function VideoStage({ job, clip, media, player, beat, onChanged }: Props)
                 {cutting ? <Loader2 className="animate-spin" /> : <Scissors />}
                 {cutting ? "Cutting…" : "Cut this clip"}
               </Button>
-              {cut?.state === "failed" && <p className="text-sm text-destructive">{cut.error || "The cut failed."}</p>}
+              {cut?.state === "failed" && <p className="text-sm text-destructive">{cutError(cut.error)}</p>}
               {err && <p className="text-sm text-destructive">{err}</p>}
             </div>
           </div>
@@ -79,7 +105,7 @@ export function VideoStage({ job, clip, media, player, beat, onChanged }: Props)
         {media && player.time < 3 && clip.hook && (
           <span className="pointer-events-none absolute inset-x-6 top-12 text-center text-2xl font-extrabold text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.9)]">{clip.hook}</span>
         )}
-        {media && !player.playing && player.ready && (
+        {media?.video && !player.playing && player.ready && (
           <button type="button" onClick={player.toggle} aria-label="Play" className="absolute inset-0 grid place-items-center bg-black/10 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100">
             <span className="grid size-16 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl"><Play className="size-7 translate-x-0.5" /></span>
           </button>

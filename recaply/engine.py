@@ -35,7 +35,7 @@ from recaply.providers.llm import llm_chain
 from recaply.providers.transcribe import get_transcriber, transcribe_cached
 from recaply.providers.transcribe.base import BLOCK, blocks_for
 from recaply.score.beats import beat_score, clip_beats, score_beats
-from recaply.score.boundaries import snap
+from recaply.score.boundaries import anchor_start, snap
 from recaply.score.fusion import fuse
 from recaply.score.rerank import headline, rerank
 from recaply.score.select import select
@@ -312,6 +312,10 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     clips = []
     for i, (w, sug) in enumerate(zip(windows, suggestions), 1):
         s, e = snap(w.words, sug["start"], sug["end"], profile.clip_min, profile.clip_max, duration, energy=db)
+        # open on the strongest moment, not a quiet lead-in (the peak and the end stay)
+        hooks = [b["start"] for b in beats_by_window[i - 1] if b["type"] == "hook" and s < b["start"] < e]
+        s, e, anchor = anchor_start(w.words, s, e, w.peak, profile.clip_min, curve=fused, hook_starts=hooks,
+                                    max_len=profile.clip_max, duration=duration, energy=db)
         cw = words_between(w.words, s, e)
         beats = clip_beats(beats_by_window[i - 1], s, e)
         bscore = beat_score(beats)
@@ -329,7 +333,16 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
             "emphasis": sug.get("emphasis") or [], "beats": beats, "beat_score": bscore,
             "transcript": " ".join(x["w"] for x in cw)[:1500], "signals": w.signals,
             "window": [round(w.start, 1), round(w.end, 1)],
+            **({"anchor": anchor} if anchor["moved"] else {}),
         })
+    # ---- hook check: the AI rates what a viewer meets first (3 s of words + the first frame); weak openers go
+    if llm is not None and scorer != "heuristic" and settings.hook_check and clips:
+        progress(f"Checking each clip's hook ({llm.provider.capitalize()})...", 0.93)
+        with tel.stage("hook"):
+            clips = hook_pass(clips, src, llm, words, profile, tel, sigs)
+    elif settings.hook_check and clips:
+        tel.note("hook check skipped: it needs the AI (start Ollama or add a key in Settings)")
+
     with tel.stage("select"):
         chosen = select(clips, opts.count)
     progress("Done", 1.0)
@@ -346,6 +359,51 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
                    "windows": len(windows), "llm_calls": sum(t["calls"] for t in tel.tokens.values())},
         "summary": tel.summary(),
     }
+
+
+HOOK_FRAME_FORMAT = "bv*[height<=480]/b[height<=480]/bv*/b"
+
+
+def hook_pass(clips: list[dict], src: Source, llm, words: list[dict], profile, tel: Telemetry,
+              sigs: dict[str, np.ndarray] | None = None) -> list[dict]:
+    """
+    Rate the opening of the best `hook_top` clips (recaply/score/hook.py), drop weak ones, and keep the
+    rest ranked with the hook folded in. Clips past the top `hook_top` aren't surfaced once rating works.
+    Any failure here leaves the clips as they were.
+    """
+    from recaply.score import hook
+    top = sorted(clips, key=lambda c: c["score"], reverse=True)[: max(1, settings.hook_top)]
+    for c in top:                      # what the per-second signals say about the first 3 s, not the whole clip
+        a = int(c["start"])
+        c["opening_signals"] = {k: round(float(v[a:a + 3].max()), 3) for k, v in (sigs or {}).items() if len(v[a:a + 3])}
+    frames: dict[float, bytes] = {}
+    if src.has_video:
+        try:
+            if src.kind == "file":
+                inputs = [(src.location, {})]
+            else:
+                from recaply.ingest.sources import stream_inputs
+                inputs = stream_inputs(src, HOOK_FRAME_FORMAT)[:1]
+            with tel.stage("hook_frames"):
+                frames = hook.grab_frames(inputs, [c["start"] for c in top])
+        except Exception as e:  # noqa: BLE001 — rate on the words alone
+            tel.note(f"hook check: first frames not read ({str(e)[:100]})")
+    try:
+        rated = hook.check_hooks(top, words, frames, llm, src.title, profile.label,
+                                 vision_model=settings.vision_model, base_url=settings.ollama_url, telemetry=tel)
+    except Exception as e:  # noqa: BLE001
+        log.warning("hook check failed", error=str(e)[:200])
+        tel.note(f"hook check failed: {str(e)[:120]}")
+        return clips
+    if not rated:
+        tel.note("hook check: the AI didn't rate any opening, so no clip was filtered")
+        return clips
+    kept, note = hook.apply(top, settings.hook_min)
+    if note:
+        tel.note(note)
+    log.info("hook check", rated=rated, kept=len(kept), frames=len(frames),
+             vision=bool(settings.vision_model and hook.vision_ready(settings.vision_model, settings.ollama_url)))
+    return kept
 
 
 def cut_clips(result: dict, ids: list[int], out_dir: str, quality: str = "1080",
@@ -582,7 +640,8 @@ def edit_clip(result: dict, clip_id: int, deleted: list[int], out_dir: str, cut_
     notes: list[str] = []
     with tel.stage("edit"):
         tx.render(src, dst, segs, has_audio=bool(meta["audio"]))
-    new_words = tx.retime(words, dele, segs)
+    # each kept word remembers where it started in the source, so caption edits still find it after the cut
+    new_words = tx.retime([{**w, "o": round(clip["start"] + w["s"], 3)} for w in words], dele, segs)
     used: list = []
     if broll and new_words:
         m2 = editor.probe(dst)

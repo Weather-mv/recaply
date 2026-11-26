@@ -23,6 +23,7 @@ KEYS: dict[str, tuple[str, str, bool]] = {
     "RECAPLY_LLM_ORDER": ("llm_order", "AI provider order", False),
 }
 MAX_LEN = 300
+PROVIDER_NAMES = ("groq", "gemini", "anthropic", "claude", "openai", "ollama")
 _lock = threading.Lock()
 _from_ui: set[str] = set()
 
@@ -38,7 +39,16 @@ def _read() -> dict[str, str]:
             raw = json.load(f)
     except (OSError, ValueError):
         return {}
-    return {k: str(v).strip() for k, v in raw.items() if k in KEYS and isinstance(v, str) and v.strip()}
+    out = {k: str(v).strip() for k, v in raw.items() if k in KEYS and isinstance(v, str) and v.strip()}
+    # a provider order saved before it was checked (e.g. an API key pasted into that box) is ignored
+    if "RECAPLY_LLM_ORDER" in out and not valid_order(out["RECAPLY_LLM_ORDER"]):
+        out.pop("RECAPLY_LLM_ORDER")
+    return out
+
+
+def valid_order(value: str) -> bool:
+    names = [p.strip().lower() for p in value.split(",") if p.strip()]
+    return bool(names) and all(p in PROVIDER_NAMES for p in names)
 
 
 def load_into_environment() -> None:
@@ -69,6 +79,15 @@ def update(settings, changes: dict) -> dict[str, str]:
             if len(v) > MAX_LEN or any(c in v for c in "\r\n\t\0"):
                 problems[k] = "That doesn't look like a valid value."
                 continue
+            if k == "RECAPLY_LLM_ORDER" and v:
+                names = [p.strip().lower() for p in v.split(",") if p.strip()]
+                bad = [p for p in names if p not in PROVIDER_NAMES]
+                if bad:
+                    # an API key pasted into the wrong box ends up here: never save (or echo) it
+                    problems[k] = ("Only provider names go here, separated by commas: "
+                                   + ", ".join(PROVIDER_NAMES) + ". Paste API keys into their own boxes above.")
+                    continue
+                v = ",".join(dict.fromkeys(names))
             if v:
                 saved[k] = v
                 os.environ[k] = v

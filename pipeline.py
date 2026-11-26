@@ -652,6 +652,31 @@ def h264_encoder() -> str:
         return _encoder
 
 
+_http_chunked = None
+
+
+def http_input_args() -> list[str]:
+    """
+    ffmpeg input options for reading a stream URL (put before its -i).
+    YouTube serves one open-ended request at roughly playback speed, so a
+    40 s clip took ~20 s to read; asking in 2 MB ranges over one kept-alive
+    connection reads the same bytes in under a second. Older ffmpeg builds
+    without -request_size just get the reconnect options.
+    """
+    global _http_chunked
+    if _http_chunked is None:
+        try:
+            out = subprocess.run(["ffmpeg", "-hide_banner", "-h", "protocol=http"],
+                                 capture_output=True, text=True, timeout=10).stdout
+            _http_chunked = "-request_size" in out
+        except (OSError, subprocess.SubprocessError):
+            _http_chunked = False
+    args = ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+    if _http_chunked:
+        args += ["-multiple_requests", "1", "-request_size", "2000000", "-initial_request_size", "200000"]
+    return args
+
+
 def probe_media(path: str):
     """(video codec, audio codec, duration seconds) of a media file."""
     out = subprocess.run(

@@ -109,7 +109,9 @@ def _analyze(job: dict) -> None:
         result = analyze(job["input"], opts, progress=progress, telemetry=tel)
         tracker.finish()
         tracker.add("info", f"Found {len(result['clips'])} clips (scored by {result.get('scorer')})")
+        fresh = store.get(jid) or job
         store.update(jid, state="ready", stage="Done", progress=1.0, result=result,
+                     cuts=kept_cuts((fresh.get("result") or {}).get("clips") or [], result["clips"], fresh.get("cuts") or {}),
                      title=result["source"]["title"], summary=result["summary"], stages=tracker.stages, log=tracker.log)
         log.info("job ready", job=jid, clips=len(result["clips"]), sec=result["summary"]["total_sec"])
     except Exception as e:  # noqa: BLE001
@@ -118,6 +120,25 @@ def _analyze(job: dict) -> None:
         where = tracker.fail(msg)
         store.update(jid, state="failed", stage=f"Failed while {LABELS[where].lower()}", error=msg,
                      summary=tel.summary(), stages=tracker.stages, log=tracker.log)
+
+
+def kept_cuts(old_clips: list[dict], new_clips: list[dict], cuts: dict) -> dict:
+    """
+    The cut / short / preview / edit records still valid after a re-analysis.
+    Clip ids are positions in the new result, so a record is kept only when
+    its id still means the same moment (same start and end); otherwise a clip
+    would play another clip's video.
+    """
+    def span(c):
+        return round(float(c["start"]), 2), round(float(c["end"]), 2)
+    old = {c["id"]: span(c) for c in old_clips}
+    new = {c["id"]: span(c) for c in new_clips}
+    out = {}
+    for key, rec in cuts.items():
+        digits = key.lstrip("pse")
+        if digits.isdigit() and old.get(int(digits)) is not None and old.get(int(digits)) == new.get(int(digits)):
+            out[key] = rec
+    return out
 
 
 def _render_start(job: dict, label: str) -> StageTracker:

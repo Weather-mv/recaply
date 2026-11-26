@@ -19,6 +19,7 @@ from recaply.log import get_logger
 log = get_logger("live.pipeline")
 POLL = 2.0
 MAX_WAIT = 3600.0
+LIVE_PRIORITY = 3            # above every plan's priority (slots.py: 0 free, 1 starter, 2 pro)
 
 
 def submit_clip(cfg: ChannelConfig, path: str, info: dict) -> str:
@@ -26,8 +27,10 @@ def submit_clip(cfg: ChannelConfig, path: str, info: dict) -> str:
     opts = {"profile": cfg.profile, "count": cfg.count, "max_len": min(180.0, cfg.pre + cfg.post),
             "transcriber": cfg.transcriber, "llm": cfg.llm}
     title = f"{cfg.name} · live clip at {info.get('clock', '')}".strip(" ·")
-    jid = store.create(path, {k: v for k, v in opts.items() if v is not None}, title=title, owner=cfg.owner)
-    get_queue().submit(jid, "analyze")
+    # a live moment is short and wanted now: it goes ahead of long video analyses waiting for a slot
+    jid = store.create(path, {k: v for k, v in opts.items() if v is not None}, title=title, owner=cfg.owner,
+                       priority=LIVE_PRIORITY)
+    get_queue().submit(jid, "analyze", priority=LIVE_PRIORITY)
     threading.Thread(target=follow, args=(cfg, jid, info), daemon=True, name=f"live-follow-{jid}").start()
     return jid
 

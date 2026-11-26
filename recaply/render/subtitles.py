@@ -114,29 +114,85 @@ def build_chunks(words: list[dict], per: int, emoji: bool = False) -> list[dict]
     return chunks
 
 
-def safe_band(fmt: str, layout: str, W: int, H: int) -> tuple[float, float]:
-    """(centre y, height) for the caption block on a W x H canvas."""
+# What the studio's Captions panel may change on top of a preset (sizes are at 1080 px wide).
+HEX6 = re.compile(r"^#[0-9a-fA-F]{6}$")
+STYLE_COLORS = ("color", "hi", "hi_bg", "kw", "stroke", "bg")
+STYLE_NUMBERS = {"size": (28, 160), "per": (1, 8), "stroke_w": (0, 16), "bg_op": (0, 1), "y": (0.08, 0.92),
+                 "x": (0.15, 0.85), "w": (0.3, 0.92)}
+HI_MODES = ("color", "box", "none")
+ENTERS = ("pop", "fade", "none")
+MOTIONS = ("none", "bounce", "stagger", "zoom")
+
+
+def clean_style(raw) -> dict:
+    """The caption style overrides sent by the studio, checked; anything unknown or out of range is dropped."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in STYLE_COLORS:
+        v = raw.get(k)
+        if isinstance(v, str) and HEX6.match(v):
+            out[k] = v.lower()
+    for k, (lo, hi) in STYLE_NUMBERS.items():
+        v = raw.get(k)
+        if v is None or isinstance(v, bool):
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f == f:                                   # not NaN
+            f = min(hi, max(lo, f))
+            out[k] = int(round(f)) if k in ("size", "per") else round(f, 3)
+    if isinstance(raw.get("upper"), bool):
+        out["upper"] = raw["upper"]
+    if raw.get("hi_mode") in HI_MODES:
+        out["hi_mode"] = raw["hi_mode"]
+    if raw.get("enter") in ENTERS:
+        out["enter"] = raw["enter"]
+    if raw.get("motion") in MOTIONS:
+        out["motion"] = raw["motion"]
+    f = raw.get("font")
+    if isinstance(f, str) and re.match(r"^[a-z]{1,20}$", f):
+        out["font"] = f
+    return out
+
+
+def safe_band(fmt: str, layout: str, W: int, H: int, seam: float = 0.42) -> tuple[float, float]:
+    """(centre y, height) for the caption block on a W x H canvas. `seam`: where cam and gameplay meet (share of H)."""
     if fmt in ("9:16", "4:5"):
         if layout == "split":
-            return H * 0.42, H * 0.16          # on the seam between cam and gameplay
+            return H * seam, H * 0.16          # on the seam between cam and gameplay
+        if layout == "split_bottom":
+            return H * (1 - seam) - H * 0.1, H * 0.16     # just above the cam pane
         return H * 0.68, H * 0.16              # above the platform UI at the bottom
     return H * 0.82, H * 0.2
 
 
 def captions_layer(words: list[dict], preset: str, fmt: str, layout: str, W: int, H: int,
                    keywords: tuple[str, ...] = (), emphasis: tuple[str, ...] = (), emoji: bool = False,
-                   colors: dict | None = None, font: str | None = None) -> dict | None:
-    """An editor captions layer for `words` (clip-relative seconds), or None when there's no speech."""
+                   colors: dict | None = None, font: str | None = None, seam: float = 0.42,
+                   style: dict | None = None) -> dict | None:
+    """
+    An editor captions layer for `words` (clip-relative seconds), or None when there's no speech.
+    `style`: the studio's overrides (clean_style), applied over the preset and the brand colours.
+    """
     if not words:
         return None
+    style = clean_style(style)
     st = dict(PRESETS.get(preset) or PRESETS["bold"])
+    st.update({k: v for k, v in style.items() if k in ("size", "per", "stroke_w", "upper")})
     scale = W / 1080
     size = st["size"] * scale * (0.85 if fmt in ("16:9",) else 1.0)
-    cy, bh = safe_band(fmt, layout, W, H)
+    cy, bh = safe_band(fmt, layout, W, H, seam)
+    if "y" in style:
+        cy = H * style["y"]
+    cx = W * style.get("x", 0.5)
+    bw = min(W * style.get("w", 0.84), 2 * min(cx, W - cx))    # never wider than fits around its centre
     marked = mark_keywords(words, keywords, emphasis)
     L = {
         "id": "captions", "type": "captions", "name": "Captions", "hidden": False, "locked": False, "opacity": 1,
-        "x": round(W * 0.08, 2), "y": round(cy - bh / 2, 2), "w": round(W * 0.84, 2), "h": round(bh, 2),
+        "x": round(cx - bw / 2, 2), "y": round(cy - bh / 2, 2), "w": round(bw, 2), "h": round(bh, 2),
         "start": 0, "end": None, "kf": {}, "anim_in": {"type": "none", "dur": 0.5},
         "anim_out": {"type": "none", "dur": 0.5},
         "size": int(round(size)), "color": st["color"], "hi": st["hi"], "hi_bg": st["hi_bg"],
@@ -156,13 +212,50 @@ def captions_layer(words: list[dict], preset: str, fmt: str, layout: str, W: int
                 L["hi"] = colors["highlight"]
         if colors.get("keyword"):
             L["kw"] = colors["keyword"]
+    for k in (*STYLE_COLORS, "hi_mode", "bg_op", "motion"):
+        if k in style:
+            L[k] = style[k]
+    if "enter" in style:
+        L["enter"] = style["enter"]
+        L["pop"] = style["enter"] == "pop"
+    if font:
+        L["font"] = font
+    return L
+
+
+CONTEXT_SEC = 1.0
+
+
+def context_layer(text: str, fmt: str, W: int, H: int, duration: float = CONTEXT_SEC,
+                  font: str | None = None) -> dict | None:
+    """
+    The stakes for a clip that starts mid-action ("5-star wanted level"), for its first second: white
+    capitals on a dark box where the hook text goes, so a new viewer knows what's going on.
+    """
+    text = " ".join((text or "").split())[:40].upper()
+    if not text:
+        return None
+    size = int(round((70 if fmt in ("9:16", "4:5") else 56) * W / 1080))
+    measure = editor._font(size).getlength
+    w = min(W * 0.9, measure(text) * 1.08 + 2 * size * editor.TEXT_PAD + 2 * size)   # room so one line stays one line
+    lines = editor.wrap_text(text, w - 2 * size * editor.TEXT_PAD, measure)[:2]
+    h = len(lines) * size * editor.LINE_H + 2 * size * editor.TEXT_PAD
+    top = H * (0.1 if fmt in ("9:16", "4:5") else 0.06)
+    L = {
+        "id": "context", "type": "text", "name": "Stakes", "hidden": False, "locked": False, "opacity": 1,
+        "x": round((W - w) / 2, 2), "y": round(top, 2), "w": round(w, 2), "h": round(h, 2), "rot": 0,
+        "start": 0, "end": round(duration, 2), "kf": {},
+        "anim_in": {"type": "pop", "dur": 0.2}, "anim_out": {"type": "fade", "dur": 0.15},
+        "text": text, "size": size, "color": "#ffffff", "stroke": "#000000", "stroke_w": 0,
+        "bg": "#0b0b0f", "bg_op": 0.88, "align": "center", "lines": lines,
+    }
     if font:
         L["font"] = font
     return L
 
 
 def hook_layer(text: str, fmt: str, W: int, H: int, accent: str = "#0865ff", duration: float = 3.0,
-               font: str | None = None) -> dict | None:
+               font: str | None = None, start: float = 0.0) -> dict | None:
     """On-screen hook for the first seconds: bold text on a coloured box near the top (inside the safe zone)."""
     text = " ".join((text or "").split())[:90]
     if not text:
@@ -176,7 +269,7 @@ def hook_layer(text: str, fmt: str, W: int, H: int, accent: str = "#0865ff", dur
     L = {
         "id": "hook", "type": "text", "name": "Hook", "hidden": False, "locked": False, "opacity": 1,
         "x": round((W - w) / 2, 2), "y": round(top, 2), "w": round(w, 2), "h": round(h, 2), "rot": 0,
-        "start": 0, "end": round(duration, 2), "kf": {},
+        "start": round(start, 2), "end": round(start + duration, 2), "kf": {},
         "anim_in": {"type": "pop", "dur": 0.35}, "anim_out": {"type": "fade", "dur": 0.3},
         "text": text, "size": size, "color": "#ffffff", "stroke": "#000000", "stroke_w": 0,
         "bg": accent, "bg_op": 0.95, "align": "center", "lines": lines,

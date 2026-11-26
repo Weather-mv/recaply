@@ -114,6 +114,13 @@ class Settings:
     beat_chunk_words: int = field(default_factory=lambda: _int("RECAPLY_BEAT_CHUNK_WORDS", 350))
     beat_overlap_words: int = field(default_factory=lambda: _int("RECAPLY_BEAT_OVERLAP_WORDS", 50))
 
+    # hook check: the AI rates each clip's first 3 s (words + first frame); weak openers are dropped
+    hook_check: bool = field(default_factory=lambda: _flag("RECAPLY_HOOK_CHECK", True))
+    hook_min: int = field(default_factory=lambda: _int("RECAPLY_HOOK_MIN", 6))           # 1-10; below it a clip is dropped
+    hook_top: int = field(default_factory=lambda: _int("RECAPLY_HOOK_TOP", 18))          # clips rated (best first)
+    # a local vision model in Ollama that describes each clip's first frame ("" = describe it with OpenCV)
+    vision_model: str = field(default_factory=lambda: _str("RECAPLY_VISION_MODEL", "moondream"))
+
     # signals (Phase 3)
     motion_for_links: bool = field(default_factory=lambda: _flag("RECAPLY_MOTION_LINKS", True))   # read a small video stream for motion
     chat_replay: bool = field(default_factory=lambda: _flag("RECAPLY_CHAT", True))                # fetch chat replay for VODs

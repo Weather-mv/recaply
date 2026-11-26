@@ -86,14 +86,18 @@ def _options(form) -> dict:
 
 def short_choices() -> dict:
     """Export presets, layouts and caption styles the UI offers for shorts."""
-    layouts = {"auto": "Auto", "face": "Follow the speaker", "split": "Cam on top, gameplay below",
-               "action": "Gameplay crop", "center": "Centre crop", "fit": "Whole frame, blurred sides"}
+    layouts = {"auto": "Auto (finds the facecam)", "split": "Facecam on top, gameplay below",
+               "split_bottom": "Gameplay on top, facecam below", "pip": "Gameplay with a facecam box",
+               "face": "Follow the speaker", "action": "Follow the action", "center": "Centre crop",
+               "fit": "Whole frame, blurred sides"}
     from recaply.render import bgm
     return {"exports": [{"key": k, "label": v["label"]} for k, v in presets.EXPORTS.items()],
             "music": bgm.tracks(),
             "layouts": [{"key": k, "label": layouts.get(k, k)} for k in reframe.STRATEGIES],
             "captions": [{"key": "none", "label": "No captions"}, {"key": "brand", "label": "Brand kit style"},
-                         *({"key": k, "label": v["label"]} for k, v in subtitles.PRESETS.items())]}
+                         *({"key": k, "label": v["label"], "style": {x: y for x, y in v.items() if x != "label"}}
+                           for k, v in subtitles.PRESETS.items())],
+            "caption_fonts": brandkit.available_fonts()}
 
 
 def _owned(job_id: str) -> dict:

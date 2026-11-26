@@ -199,8 +199,9 @@ def _ffmpeg_cmd(inputs, headers, ss, dur, audio_path):
             cmd += ["-ss", str(ss)]
         if dur:
             cmd += ["-t", str(dur)]
-        cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"] \
-            if inp.startswith("http") else []
+        if inp.startswith("http"):
+            from pipeline import http_input_args
+            cmd += http_input_args()
         cmd += ["-i", inp]
     a_idx = len(inputs) - 1
     cmd += ["-map", "0:v:0", "-vf", f"fps=1,scale={FRAME_W}:{FRAME_H}",

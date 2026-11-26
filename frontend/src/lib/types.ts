@@ -44,6 +44,12 @@ export interface Clip {
   transcript: string;
   signals: Record<string, number>;
   window: [number, number];
+  /** hook check (recaply/score/hook.py): the AI's 1-10 rating of the first 3 seconds and why */
+  hook_score?: number;
+  hook_reason?: string;
+  /** the clip starts mid-action; `context` is the stakes line shown for its first second ("" = none) */
+  mid_action?: boolean;
+  context?: string;
 }
 
 export type StageKey = "download" | "analyze" | "transcribe" | "score" | "render";
@@ -181,7 +187,8 @@ export interface Choice {
 export interface Capabilities {
   exports: Choice[];
   layouts: Choice[];
-  captions: Choice[];
+  captions: (Choice & { style?: Partial<import("@/lib/captions").CaptionStyle> })[];
+  caption_fonts?: Choice[];
   languages: Choice[];
   music: { name: string; size_mb: number }[];
 }
@@ -205,8 +212,14 @@ export interface Health {
 export interface ShortOptions {
   export: string;
   layout: string;
+  split_ratio: number; // the facecam pane's share of the height (cam layouts)
+  cam_box: [number, number, number, number] | null; // facecam box drawn by hand; null = detected
   captions: string;
   hook: boolean;
+  context: boolean; // the stakes line for the first second of a clip that starts mid-action
+  context_text: string; // "" = the line the hook check wrote
+  caption_edits?: { t: number; w: string }[];
+  caption_style?: import("@/lib/captions").StyleOverrides; // the Captions panel's changes on top of the preset // retyped caption words: t = the word's start in the source video
   emoji: boolean;
   tighten: boolean;
   broll: boolean;

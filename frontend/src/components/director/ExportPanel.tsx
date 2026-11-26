@@ -1,10 +1,10 @@
-import { CheckCircle2, Download, Eye, Loader2, Rocket, ScanFace, Crop, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Crop, Download, Expand, Eye, Loader2, PanelBottom, PanelTop, PictureInPicture2, Rocket, ScanFace, SquareDashed, Sparkles, TriangleAlert, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Label, Select } from "@/components/ui/input";
+import { Input, Label, Select } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { clipFileUrl } from "@/lib/api";
-import { LAYOUT_NOTES, type Layout } from "@/lib/reframe";
+import { CAM_LAYOUTS, LAYOUT_META, LAYOUTS, resolveLayout, type Layout, type LayoutInfo } from "@/lib/reframe";
 import type { Capabilities, Clip, CutInfo, ShortOptions } from "@/lib/types";
 import { PublishPanel } from "./PublishPanel";
 
@@ -26,14 +26,39 @@ interface Props {
   previewError?: string;
   /** set on the desktop app: lets the finished short be published or scheduled */
   publishClip?: Clip;
+  /** what's on screen in this clip, measured from the cut (null while unknown) */
+  layoutInfo: LayoutInfo | null;
+  layoutState: "idle" | "loading" | "ready" | "error";
+  layoutError?: string;
+  onDrawCam: () => void;
+  /** what the hook check found for this clip */
+  stakes: string;
+  hookScore?: number;
+  hookReason?: string;
 }
 
-const REFRAME = [
-  { layout: "auto", label: "Auto-reframe", hint: "Follows face or action", Icon: ScanFace },
-  { layout: "center", label: "Center crop", hint: "Fixed crop", Icon: Crop },
-] as const;
+const ICONS: Record<Layout, typeof ScanFace> = {
+  auto: Sparkles, split: PanelTop, split_bottom: PanelBottom, pip: PictureInPicture2,
+  face: ScanFace, action: Zap, center: Crop, fit: Expand,
+};
 
-export function ExportPanel({ jobId, caps, options, onChange, short, busy, error, deletedCount, onExport, canExport, preview, previewBusy, onPreview, previewError, publishClip }: Props) {
+function LayoutStatus({ layout, info, state, error, manual }: { layout: Layout; info: LayoutInfo | null; state: string; error?: string; manual: boolean }) {
+  if (state === "loading") {
+    return <p className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Finding the facecam and the action…</p>;
+  }
+  if (state === "error") return <p className="mt-1.5 text-sm text-muted-foreground">{error || "Couldn't look at the picture"}. The preview is approximate.</p>;
+  if (!info) return null;
+  const drawn = manual ? "split" : resolveLayout(layout, info, null);
+  const camLine = manual ? "Using the cam box you drew." : info.cam ? "Facecam found." : "No facecam found. If there is one, draw its box.";
+  return (
+    <p className="mt-1.5 text-sm text-muted-foreground">
+      {layout === "auto" && <>Auto picks <span className="font-semibold text-foreground">{LAYOUT_META[drawn].label}</span> for this clip. </>}
+      {(layout === "auto" || CAM_LAYOUTS.includes(layout)) && camLine}
+    </p>
+  );
+}
+
+export function ExportPanel({ jobId, caps, options, onChange, short, busy, error, deletedCount, onExport, canExport, preview, previewBusy, onPreview, previewError, publishClip, layoutInfo, layoutState, layoutError, onDrawCam, stakes, hookScore, hookReason }: Props) {
   const set = <K extends keyof ShortOptions>(k: K, v: ShortOptions[K]) => onChange({ ...options, [k]: v });
   const rendering = !!busy || short?.state === "queued" || short?.state === "rendering";
   const previewing = !!previewBusy || preview?.state === "queued" || preview?.state === "rendering";
@@ -49,50 +74,75 @@ export function ExportPanel({ jobId, caps, options, onChange, short, busy, error
         </Select>
       </div>
       <div>
-        <Label>Framing</Label>
-        <div role="radiogroup" aria-label="Framing" className="grid grid-cols-2 gap-1 rounded-full border bg-secondary/50 p-1">
-          {REFRAME.map(({ layout, label, hint, Icon }) => (
-            <button
-              key={layout}
-              type="button"
-              role="radio"
-              aria-checked={options.layout === layout}
-              onClick={() => set("layout", layout)}
-              className={cn(
-                "flex h-11 flex-col items-center justify-center rounded-full text-sm font-semibold leading-tight transition-colors",
-                options.layout === layout ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <span className="inline-flex items-center gap-1.5"><Icon className="size-4" /> {label}</span>
-              <span className="text-xs font-normal opacity-80">{hint}</span>
-            </button>
-          ))}
+        {hookScore != null && (
+          <p className="mb-3 rounded-lg border bg-secondary/40 p-2.5 text-sm" title={hookReason}>
+            <span className="font-bold">Hook {hookScore}/10</span>
+            {hookReason && <span className="text-muted-foreground"> · {hookReason}</span>}
+          </p>
+        )}
+        <Label>Layout</Label>
+        <div role="radiogroup" aria-label="Layout" className="grid grid-cols-2 gap-1.5">
+          {LAYOUTS.map((key) => {
+            const Icon = ICONS[key];
+            const on = options.layout === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                aria-label={LAYOUT_META[key].label}
+                title={LAYOUT_META[key].hint}
+                onClick={() => set("layout", key)}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm font-semibold transition-colors",
+                  on ? "border-primary bg-primary text-primary-foreground shadow" : "bg-secondary/40 text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4 shrink-0" /> {LAYOUT_META[key].label}
+              </button>
+            );
+          })}
         </div>
-      </div>
-      <div>
-        <Label htmlFor="exp-layout">All layouts (live preview)</Label>
-        <Select id="exp-layout" value={options.layout} onChange={(e) => set("layout", e.target.value)}>
-          {caps.layouts.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-        </Select>
-        <p className="mt-1.5 text-sm text-muted-foreground">{LAYOUT_NOTES[options.layout as Layout] ?? ""}</p>
-      </div>
-      <div>
-        <Label htmlFor="exp-captions">Captions</Label>
-        <Select id="exp-captions" value={options.captions} onChange={(e) => set("captions", e.target.value)}>
-          {caps.captions.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-        </Select>
-      </div>
-      <div>
-        <Label htmlFor="exp-lang">Translate captions</Label>
-        <Select id="exp-lang" value={options.translate} onChange={(e) => set("translate", e.target.value)}>
-          <option value="">Original language</option>
-          {caps.languages.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-        </Select>
+        <p className="mt-1.5 text-sm text-muted-foreground">{LAYOUT_META[options.layout as Layout]?.hint}</p>
+        <LayoutStatus layout={options.layout as Layout} info={layoutInfo} state={layoutState} error={layoutError} manual={!!options.cam_box} />
       </div>
 
+      {(CAM_LAYOUTS.includes(options.layout as Layout) || options.layout === "auto") && (
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="exp-camsize" className="mb-0">Facecam size</Label>
+              <span className="tabular text-sm text-muted-foreground">{Math.round(options.split_ratio * 100)}%</span>
+            </div>
+            <input id="exp-camsize" type="range" min={0.25} max={0.6} step={0.01} value={options.split_ratio}
+              onChange={(e) => set("split_ratio", Number(e.target.value))} className="mt-2 w-full accent-[hsl(var(--primary))]" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" className="flex-1" onClick={onDrawCam}>
+              <SquareDashed /> {options.cam_box ? "Redraw the cam box" : "Draw the cam box"}
+            </Button>
+            {options.cam_box && <Button type="button" variant="ghost" size="sm" onClick={() => set("cam_box", null)}>Auto-detect</Button>}
+          </div>
+        </div>
+      )}
       <div className="divide-y">
         <SwitchRow title="Hook text" hint="Opening line for the first 3 seconds" checked={options.hook} onChange={(v) => set("hook", v)} />
-        <SwitchRow title="Emoji in captions" checked={options.emoji} onChange={(v) => set("emoji", v)} />
+        <SwitchRow title="Stakes line" hint="For the first second, so a viewer knows what's going on (the hook text follows)" checked={options.context} onChange={(v) => set("context", v)} />
+        {options.context && (
+          <div className="pb-3">
+            <Input
+              aria-label="Stakes line"
+              maxLength={40}
+              value={options.context_text || stakes}
+              placeholder="e.g. Cops right behind him"
+              onChange={(e) => set("context_text", e.target.value)}
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {stakes ? "Written by the hook check because the clip starts mid-action. Edit it, or switch the line off." : "The hook check didn't find this clip starting mid-action. Type a line to add one."}
+            </p>
+          </div>
+        )}
         <SwitchRow title="Tighten" hint="Remove fillers and long pauses" checked={options.tighten} onChange={(v) => set("tighten", v)} />
         <SwitchRow title="B-roll" hint="Stock cut-aways matched to keywords" checked={options.broll} onChange={(v) => set("broll", v)} />
         <SwitchRow title="Cinematic teaser" hint="A 3 second cold open with the best frame, then a glitch into the clip" checked={options.teaser} onChange={(v) => set("teaser", v)} />

@@ -9,12 +9,18 @@ One channel's loop.
 
 A spike at stream time T is cut as [T - pre, T + post] from the buffer once
 T + post has been recorded, then handed to the normal clip pipeline in the
-background while the recording carries on.
+background while the recording carries on. Cuts run on their own thread, so a
+slow one never holds up recording, scoring or reconnecting; the part of the
+buffer a cut still needs is kept until it's done.
+
+A connection that stays open but stops delivering (a frozen stream) is
+dropped after STALL_SEC and reconnected like any other drop.
 """
 
 from __future__ import annotations
 
 import os
+import queue
 import shutil
 import threading
 import time
@@ -37,6 +43,7 @@ QUICK_EXIT = 20.0            # a recorder that quits sooner than this found noth
 BACKOFF_MIN = 3.0            # after a dropped connection: try again in this many seconds...
 BACKOFF_MAX = 30.0           # ...doubling every time it fails again, up to this
 STABLE_SEC = 30.0            # a connection that held this long counts as healthy: the backoff starts over
+STALL_SEC = 60.0             # recording alive but not growing this long = frozen connection: drop and reconnect
 MAX_CHAT = 30000
 Submit = Callable[[ChannelConfig, str, dict], str]
 
@@ -76,6 +83,12 @@ class ChannelWorker(threading.Thread):
         self._chat_msgs: list[dict] = []
         self._chat_lock = threading.Lock()
         self._anchor = (0.0, time.time())            # (buffer length, wall clock) at the last refresh
+        self.stalls = 0
+        self._cuts: queue.Queue = queue.Queue()        # moments waiting for the cutter thread
+        self._cutting: dict[int, float] = {}           # cut id -> its start (stream time): keep the buffer from there
+        self._cut_ids = 0
+        self._cut_lock = threading.Lock()
+        self._cutter: threading.Thread | None = None
 
     # ---------- public ----------
 
@@ -86,7 +99,8 @@ class ChannelWorker(threading.Thread):
         return {"name": self.cfg.name, "state": self.state, "note": self.note, "url": self.cfg.url,
                 "profile": self.cfg.profile, "recording_sec": round(self.buf.length) if self.buf else 0,
                 "spikes": self.spikes, "clips": list(self.clips), "score": round(self.last_score, 2),
-                "reconnects": self.reconnects, "reconnecting": self.reconnecting,
+                "reconnects": self.reconnects, "reconnecting": self.reconnecting, "stalls": self.stalls,
+                "cuts_waiting": len(self._cutting),
                 "buffer_mb": round(self.buf.size_bytes() / 1e6, 1) if self.buf else 0.0,
                 "buffer_limit_mb": self.cfg.max_buffer_mb, "retention_min": self.cfg.retention_min,
                 "chat": ({"connected": self.chat.connected, "messages": self.chat.count, "note": self.chat.note}
@@ -213,6 +227,12 @@ class ChannelWorker(threading.Thread):
                 elif length > self._drop_len + 1.0:
                     self.reconnecting, self.note, self._drop_len = False, "", None
                     notify.send(cfg, "recording", title=f"{cfg.name}: reconnected", text="The connection is back: recording again.")
+            if (went_live and rec is not None and rec.alive() and not self.reconnecting
+                    and rec.ran_for() > STALL_SEC and now - last_data > STALL_SEC):
+                # the connection is open but nothing new arrived: drop it; the next pass reconnects
+                self.stalls += 1
+                log.warning("stream stalled, reconnecting", channel=cfg.name, idle=round(now - last_data))
+                rec.stop()
             self._anchor = (length, now)
             if went_live and segs:
                 try:
@@ -230,10 +250,8 @@ class ChannelWorker(threading.Thread):
                         pending.append((sp, self._spike(sp, sig, off)))
             self._cut_due(pending, buf, ended=False)
             keep = length - cfg.retention_min * 60
-            protect = float("inf")
-            if pending:
-                protect = min(s.t - cfg.pre for s, _ in pending) - 5
-                keep = min(keep, protect)
+            protect = self._protect_from(pending)
+            keep = min(keep, protect)
             buf.prune(keep)
             buf.prune_to_size(int(cfg.max_buffer_mb * 1e6), protect)
             self.stop_flag.wait(self.tick if rec is not None and rec.alive() else min(self.tick, 2.0))
@@ -247,6 +265,7 @@ class ChannelWorker(threading.Thread):
         for sp in det.flush(int(buf.length)):
             pending.append((sp, self._spike(sp, {}, 0)))
         self._cut_due(pending, buf, ended=True)
+        self._finish_cuts()
         self.state = "stopped" if stopped_by_user else "ended"
         if not self.note and stopped_by_user:
             self.note = "stopped"
@@ -273,7 +292,11 @@ class ChannelWorker(threading.Thread):
         if t1 - t0 < 3:
             raise RuntimeError("Not enough has been recorded yet.")
         out = os.path.join(self.clips_dir, f"clip_{int(t1):06d}_manual.mp4")
-        buf.cut(t0, t1, out)
+        cid = self._hold(t0)
+        try:
+            buf.cut(t0, t1, out)
+        finally:
+            self._release(cid)
         info = {"t": round(t1, 1), "clock": _clock(t1), "score": 0.0, "signals": {}, "manual": True,
                 "file": out, "start": round(t0, 1), "end": round(t1, 1)}
         try:
@@ -295,7 +318,27 @@ class ChannelWorker(threading.Thread):
                     **{k: info[k] for k in ("t", "clock", "score", "signals")})
         return info
 
+    # ---------- cutting (its own thread) ----------
+
+    def _protect_from(self, pending: list) -> float:
+        """Stream time from which the buffer must be kept: moments still waiting to be cut, and cuts in progress."""
+        starts = [sp.t - self.cfg.pre for sp, _ in pending]
+        with self._cut_lock:
+            starts += list(self._cutting.values())
+        return min(starts) - 5 if starts else float("inf")
+
+    def _hold(self, t0: float) -> int:
+        with self._cut_lock:
+            self._cut_ids += 1
+            self._cutting[self._cut_ids] = t0
+            return self._cut_ids
+
+    def _release(self, cid: int) -> None:
+        with self._cut_lock:
+            self._cutting.pop(cid, None)
+
     def _cut_due(self, pending: list, buf: Buffer, ended: bool) -> None:
+        """Hand every moment whose after-part has been recorded to the cutter thread."""
         for item in list(pending):
             sp, info = item
             if not ended and buf.length < sp.t + self.cfg.post:
@@ -305,20 +348,56 @@ class ChannelWorker(threading.Thread):
             t1 = min(buf.length, sp.t + self.cfg.post)
             if t1 - t0 < 3:
                 continue
-            out = os.path.join(self.clips_dir, f"clip_{int(sp.t):06d}.mp4")
+            self._cuts.put((sp, info, t0, t1, self._hold(t0)))
+            if self._cutter is None or not self._cutter.is_alive():
+                self._cutter = threading.Thread(target=self._cut_loop, daemon=True, name=f"live-cut-{self.cfg.name}")
+                self._cutter.start()
+
+    def _cut_loop(self) -> None:
+        """The cutter: one cut at a time, oldest first; it ends once nothing has come in for a moment."""
+        while True:
             try:
-                buf.cut(t0, t1, out)
-            except Exception as e:  # noqa: BLE001
-                log.warning("cut failed", channel=self.cfg.name, error=str(e)[:200])
-                notify.send(self.cfg, "error", title=f"{self.cfg.name}: couldn't cut the clip at {info['clock']}", text=str(e)[:300])
+                sp, info, t0, t1, cid = self._cuts.get(timeout=2.0)
+            except queue.Empty:
+                return
+            try:
+                self._cut_one(sp, info, t0, t1)
+            finally:
+                self._release(cid)
+
+    def _finish_cuts(self, wait: float = 900.0) -> None:
+        """At the end of the stream: let the queued cuts finish before the buffer is deleted."""
+        end = time.time() + wait
+        while time.time() < end:
+            with self._cut_lock:
+                busy = bool(self._cutting)
+            if not busy:
+                return
+            if self._cutter is None or not self._cutter.is_alive():
+                self._cut_loop()          # the cutter has gone: finish the rest here
                 continue
-            rec = {**info, "file": out, "start": round(t0, 1), "end": round(t1, 1)}
-            try:
-                rec["job"] = self.submit(self.cfg, out, rec)
-            except Exception as e:  # noqa: BLE001
-                log.error("clip job not started", channel=self.cfg.name, error=str(e)[:200])
-                rec["error"] = str(e)[:200]
-            self.clips.append(rec)
-            notify.send(self.cfg, "clip_captured", title=f"{self.cfg.name}: clip captured",
-                        text=f"{_clock(t0)} - {_clock(t1)} cut; ranking and titling it in the background.",
-                        job=rec.get("job"), file=os.path.basename(out), t=sp.t, clock=info["clock"])
+            time.sleep(0.2)
+
+    def _cut_one(self, sp: Spike, info: dict, t0: float, t1: float) -> None:
+        buf = self.buf
+        if buf is None:
+            return
+        out = os.path.join(self.clips_dir, f"clip_{int(sp.t):06d}.mp4")
+        try:
+            started = time.time()
+            buf.cut(t0, t1, out)
+            log.info("clip cut", channel=self.cfg.name, at=_clock(sp.t), seconds=round(time.time() - started, 1))
+        except Exception as e:  # noqa: BLE001
+            log.warning("cut failed", channel=self.cfg.name, error=str(e)[:200])
+            notify.send(self.cfg, "error", title=f"{self.cfg.name}: couldn't cut the clip at {info['clock']}", text=str(e)[:300])
+            return
+        rec = {**info, "file": out, "start": round(t0, 1), "end": round(t1, 1)}
+        try:
+            rec["job"] = self.submit(self.cfg, out, rec)
+        except Exception as e:  # noqa: BLE001
+            log.error("clip job not started", channel=self.cfg.name, error=str(e)[:200])
+            rec["error"] = str(e)[:200]
+        self.clips.append(rec)
+        notify.send(self.cfg, "clip_captured", title=f"{self.cfg.name}: clip captured",
+                    text=f"{_clock(t0)} - {_clock(t1)} cut; ranking and titling it in the background.",
+                    job=rec.get("job"), file=os.path.basename(out), t=sp.t, clock=info["clock"])

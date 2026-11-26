@@ -18,11 +18,23 @@ def fetch(src, cache, progress=None) -> list[dict]:
     os.makedirs(folder, exist_ok=True)
     opts = base_opts(skip_download=True, writesubtitles=True, writeautomaticsub=False,
                      subtitleslangs=["live_chat"], outtmpl=os.path.join(folder, "chat.%(ext)s"))
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+    def run(o):
+        with yt_dlp.YoutubeDL(o) as ydl:
             ydl.process_ie_result(copy.deepcopy(src.raw), download=True)
+
+    try:
+        try:
+            run(opts)
+        except Exception as e:  # noqa: BLE001
+            # A cookie file yt-dlp won't read shouldn't cost the chat: try once more without cookies.
+            if "cookie" not in str(e).lower() or "cookiefile" not in opts:
+                raise
+            run({k: v for k, v in opts.items() if k != "cookiefile"})
     except Exception as e:  # noqa: BLE001 — yt-dlp raises many things for "no such subtitle"
-        raise ChatUnavailable(f"YouTube gave no chat replay ({str(e)[:100]})") from e
+        why = str(e)
+        if "cookie" in why.lower():
+            why = "cookies.txt couldn't be read"
+        raise ChatUnavailable(f"YouTube gave no chat replay ({why[:100]})") from e
     files = glob.glob(os.path.join(glob.escape(folder), "*live_chat*.json*"))
     if not files:
         raise ChatUnavailable("this video has no chat replay")

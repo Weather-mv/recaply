@@ -28,14 +28,16 @@ def producer_cmd(cfg: ChannelConfig) -> list[str]:
     if cfg.source_cmd:
         return [a.replace("{url}", cfg.url) for a in cfg.source_cmd]
     if shutil.which("streamlink"):
+        # two segment downloads in parallel keep up after a hiccup; a stream silent for a minute is given up on
         return ["streamlink", "--stdout", "--loglevel", "error", "--retry-streams", "3", "--retry-max", "2",
-                cfg.url, QUALITY]
+                "--stream-segment-threads", "2", "--stream-timeout", "60", cfg.url, QUALITY]
     return [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--no-part", "-o", "-",
-            "-f", "best[height<=720]/best", cfg.url]
+            "--retries", "10", "--fragment-retries", "10", "-f", "best[height<=720]/best", cfg.url]
 
 
 def segmenter_cmd(folder: str, segment_sec: int, start_index: int) -> list[str]:
-    return ["ffmpeg", "-v", "error", "-nostdin", "-i", "pipe:0", "-map", "0:v?", "-map", "0:a?", "-c", "copy",
+    # a damaged packet from a flaky connection is dropped instead of ending the recording
+    return ["ffmpeg", "-v", "error", "-nostdin", "-fflags", "+genpts+discardcorrupt", "-i", "pipe:0", "-map", "0:v?", "-map", "0:a?", "-c", "copy",
             "-f", "segment", "-segment_time", str(int(segment_sec)), "-segment_start_number", str(start_index),
             "-reset_timestamps", "1", "-segment_format", "mpegts", os.path.join(folder, "seg_%06d.ts")]
 

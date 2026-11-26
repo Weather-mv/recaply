@@ -42,7 +42,7 @@ def clip_inputs(src: Source, quality: str = "1080") -> list[tuple[str, dict]]:
 def cut(inputs: list[tuple[str, dict]], start: float, end: float, out_path: str,
         has_video: bool = True, progress: Callable[[float], None] | None = None) -> str:
     """Write [start, end] of the inputs to `out_path` (H.264 + AAC MP4). Returns the encoder used."""
-    from pipeline import ENCODER_ARGS, h264_encoder
+    from pipeline import ENCODER_ARGS, h264_encoder, http_input_args
     dur = max(0.5, end - start)
     encoders = [h264_encoder()] if has_video else ["none"]
     if encoders[0] not in ("libx264", "none"):
@@ -55,7 +55,7 @@ def cut(inputs: list[tuple[str, dict]], start: float, end: float, out_path: str,
             if loc.startswith("http") and headers:
                 cmd += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
             if loc.startswith("http"):
-                cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+                cmd += http_input_args()
             cmd += ["-ss", f"{start:.3f}", "-i", loc]
         cmd += ["-t", f"{dur:.3f}"]
         last = len(inputs) - 1

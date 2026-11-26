@@ -31,8 +31,11 @@ LANGUAGES = {
 NO_SPACES = {"ja", "zh", "th"}                  # scripts written without spaces between words
 MAX_SEG_WORDS = 12
 GAP = 0.7
-SYSTEM = ("You translate subtitles for short videos. Keep each line natural, short and in the speaker's tone "
-          "(slang stays slang). Keep names, game terms and brand names as they are. Answer with JSON only.")
+SYSTEM = ("You translate subtitles for short videos. The lines may be in any language, including Hindi or another "
+          "language written in Latin letters (Hinglish, romanized Hindi). Translate the MEANING into the target "
+          "language; never copy a line that isn't already in the target language. Keep each line natural, short and "
+          "in the speaker's tone (slang stays slang). Keep names, game terms and brand names as they are. "
+          "Answer with JSON only.")
 
 
 def segments(words: list[dict]) -> list[list[dict]]:
@@ -72,8 +75,11 @@ def translate_lines(llm: LLM, lines: list[str], lang: str, tel: Telemetry | None
     out: list[str] = []
     for i in range(0, len(lines), batch):
         part = lines[i:i + batch]
-        prompt = (f"Translate these {len(part)} subtitle lines to {name}. Return {{\"lines\": [...]}} with exactly "
-                  f"{len(part)} strings, in the same order, one per input line.\n\n"
+        # the example matters for small local models: without it they copy romanized Hindi as if it were English
+        prompt = (f"Translate these {len(part)} subtitle lines into {name}.\n"
+                  "Example (Hinglish to English): \"yeh kya kar raha hai bhai\" -> \"what is he doing, bro\".\n"
+                  f"Return {{\"lines\": [...]}} with exactly {len(part)} {name} strings, in the same order, "
+                  "one per input line.\n\n"
                   + "\n".join(f"{n + 1}. {t}" for n, t in enumerate(part)))
         data, usage = llm.complete_json(SYSTEM, prompt, max_tokens=4000)
         if tel is not None and isinstance(usage, Usage):

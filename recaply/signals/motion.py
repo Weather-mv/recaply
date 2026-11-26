@@ -126,7 +126,8 @@ def _chunk(inputs: list[tuple[str, dict]], start: int, want: int, keyframes: boo
     if loc.startswith("http"):
         if headers:
             cmd += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in headers.items())]
-        cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+        from pipeline import http_input_args
+        cmd += http_input_args()
     if keyframes:
         cmd += ["-skip_frame", "nokey"]
     sample = "" if keyframes else f"fps={SAMPLE_FPS},"

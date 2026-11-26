@@ -28,8 +28,16 @@ FONT_CHOICES = {                      # bold fonts offered when found on this PC
     "segoe": "C:/Windows/Fonts/seguibl.ttf",
     "bahnschrift": "C:/Windows/Fonts/bahnschrift.ttf",
     "verdana": "C:/Windows/Fonts/verdanab.ttf",
+    "arialblack": "C:/Windows/Fonts/ariblk.ttf",
+    "trebuchet": "C:/Windows/Fonts/trebucbd.ttf",
+    "georgia": "C:/Windows/Fonts/georgiab.ttf",
+    "comic": "C:/Windows/Fonts/comicbd.ttf",
     "dejavu": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 }
+FONT_LABELS = {"default": "Default (Arial Bold)", "montserrat": "Montserrat Black", "impact": "Impact",
+               "segoe": "Segoe UI Black", "bahnschrift": "Bahnschrift", "verdana": "Verdana Bold",
+               "arialblack": "Arial Black", "trebuchet": "Trebuchet Bold", "georgia": "Georgia Bold (serif)",
+               "comic": "Comic Sans Bold", "dejavu": "DejaVu Sans Bold"}
 MEDIA_FILES = {"logo": "logo.png", "font": "font.ttf", "intro": "intro.mp4", "outro": "outro.mp4"}
 
 
@@ -102,8 +110,17 @@ def save(owner, kit: BrandKit) -> BrandKit:
 
 
 def available_fonts() -> list[dict]:
-    return [{"key": k, "label": k.capitalize() if k != "default" else "Default (Arial Bold)"}
+    return [{"key": k, "label": FONT_LABELS.get(k, k.capitalize())}
             for k, p in FONT_CHOICES.items() if p is None or os.path.exists(p)]
+
+
+def choice_path(key: str) -> str | None:
+    """The file of a FONT_CHOICES font ("default" = the bold font captions use when nothing is picked)."""
+    if key == "default":
+        from reels import font_file
+        return font_file()
+    p = FONT_CHOICES.get(key)
+    return p if p and os.path.exists(p) else None
 
 
 def font_path(owner, kit: BrandKit) -> str | None:

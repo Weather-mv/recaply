@@ -172,7 +172,8 @@ class Ollama(LLM):
         body = {"model": self.model, "stream": False,
                 # a JSON schema makes small models return exactly the fields we ask for
                 "format": schema or "json", "keep_alive": self.keep_alive,
-                "options": {"temperature": 0.2, "num_predict": min(max_tokens, 4096), "num_ctx": self.num_ctx},
+                # a fixed seed: the same clip gets the same rating every run (a 1-10 cut-off is useless otherwise)
+                "options": {"temperature": 0.2, "seed": 7, "num_predict": min(max_tokens, 4096), "num_ctx": self.num_ctx},
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
         with _OLLAMA_TURN:
             res = post_json(f"{self.base_url}/api/chat", body, timeout=self.timeout, retries=1)
@@ -309,7 +310,10 @@ class LLMChain(LLM):
 
 
 def _order(name: str) -> list[str]:
-    order = [p.strip().lower() for p in settings.llm_order.split(",") if p.strip()] or [*CLOUD_ORDER, "ollama"]
+    known = (*CLOUD_ORDER, "claude", "ollama")
+    # unknown names (a typo, an API key pasted into the order box) are skipped, never sent anywhere
+    order = [p for p in (q.strip().lower() for q in settings.llm_order.split(",")) if p in known] \
+        or [*CLOUD_ORDER, "ollama"]
     if name not in ("auto", ""):
         order = [name] + [p for p in order if p != name]
     return order

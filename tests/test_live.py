@@ -299,6 +299,29 @@ def test_buffer_lengths_cut_pcm_and_prune(tmp_path):
         Buffer(str(tmp_path / "empty")).cut(0, 5, str(tmp_path / "x.mp4"))
 
 
+def _tone(path, start, dur=1.0):
+    """The loudest frequency (Hz) of [start, start+dur) of a file."""
+    from recaply.ingest.audio import decode_pcm
+    x = decode_pcm(path, start, dur, RATE)
+    spec = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+    return float(np.argmax(spec) * RATE / len(x))
+
+
+def test_cut_jumps_into_a_long_segment_and_lands_on_time(tmp_path):
+    folder = str(tmp_path / "buf")
+    make_segments(folder, n=2, seconds=30)          # 300 Hz for 0-30, 600 Hz for 30-60
+    b = Buffer(folder)
+    b.finished = True
+    b.refresh()
+    assert all(s.pts0 > 0 for s in b._segs)         # the segment's own first timestamp is known
+    out = b.cut(22, 38, str(tmp_path / "c.mp4"))     # starts 22 s into the first segment: a keyframe jump
+    d = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+                             capture_output=True, text=True).stdout)
+    assert 15.5 < d < 16.5
+    assert abs(_tone(out, 0.5) - 300) < 30 and abs(_tone(out, 6.5) - 300) < 30     # 22..30 s: the first tone
+    assert abs(_tone(out, 8.6) - 600) < 30 and abs(_tone(out, 14.5) - 600) < 30    # 30..38 s: the second
+
+
 # ---------- the channel loop ----------
 
 def run_worker(cfg, submit, tmp_path, timeout=120):
@@ -320,6 +343,25 @@ def test_channel_catches_a_moment_cuts_it_and_stops_when_the_stream_ends(tmp_pat
     kinds = [e["kind"] for e in events.list_events(channel="e2e")]
     assert kinds == ["waiting", "recording", "spike", "clip_captured", "stream_ended"]
     assert not os.path.exists(w.buffer_dir)                                              # buffer cleaned up at the end
+
+
+def test_a_frozen_connection_is_dropped_and_reconnected(tmp_path, monkeypatch):
+    from recaply.live import channel as ch
+    monkeypatch.setattr(ch, "STALL_SEC", 4.0)
+    # 20 s at a real stream's bitrate (a tiny feed would sit in ffmpeg's start-up probe), then the link freezes
+    feed = ["ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=20",
+            "-f", "lavfi", "-i", "sine=f=440:d=20", "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "6M",
+            "-c:a", "aac", "-f", "mpegts", "pipe:1"]
+    hang =[sys.executable, "-c", "import subprocess, sys, time; subprocess.call(sys.argv[1:]); time.sleep(600)", *feed]
+    cfg = make_cfg(name="frozen", source_cmd=hang, end_grace=600)
+    w = ChannelWorker(cfg, root=str(tmp_path / "live"), submit=lambda *a: "x", tick=1)
+    w.start()
+    end = time.time() + 60
+    while time.time() < end and not (w.stalls and w.reconnects):
+        time.sleep(0.5)
+    w.stop()
+    w.join(30)
+    assert w.stalls >= 1 and w.reconnects >= 1 and not w.is_alive()
 
 
 def test_channel_that_is_not_live_ends_when_waiting_is_off(tmp_path):

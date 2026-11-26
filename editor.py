@@ -351,6 +351,8 @@ def clean_layer(raw, W, H, assets_dir, used_ids):
         L["bg_op"] = _num(raw, "bg_op", 0, 0, 1)
         L["upper"] = bool(raw.get("upper"))
         L["pop"] = bool(raw.get("pop", True))
+        L["enter"] = raw.get("enter") if raw.get("enter") in CAP_ENTERS else ("pop" if L["pop"] else "none")
+        L["pop"] = L["enter"] == "pop"
         L["motion"] = raw.get("motion") if raw.get("motion") in CAP_MOTIONS else "none"
         L["per"] = int(_num(raw, "per", 3, 1, 8))
         if isinstance(raw.get("preset"), str) and re.match(r"^[a-z]{1,12}$", raw["preset"]):
@@ -575,7 +577,8 @@ def text_lines(L):
 
 CAP_POP = 0.2                           # seconds a chunk takes to pop in
 CAP_POP_FRAMES = 5                      # pictures drawn for the pop (the page animates it smoothly too)
-CAP_MOTIONS = ("none", "bounce", "stagger")
+CAP_MOTIONS = ("none", "bounce", "stagger", "zoom")
+CAP_ENTERS = ("pop", "fade", "none")      # how a chunk of words comes on screen
 CAP_WORD = 0.22                         # seconds a word's bounce / pop-in takes (motion "bounce" and "stagger")
 CAP_WORD_FRAMES = 6                     # pictures drawn for it
 CAP_GAP = 0.6                           # a chunk stays up across pauses shorter than this
@@ -610,10 +613,12 @@ def caption_state(L, t, trim0, speed):
     if L.get("motion", "none") != "none":
         wp = min(1.0, max(0.0, (t - out(c["words"][j]["s"])) / CAP_WORD))
     sc, op = 1.0, 1.0
-    if L["pop"]:
-        u = (t - cs) / CAP_POP
-        if u < 1:
-            sc, op = 0.7 + 0.3 * _back_out(u), min(1.0, u * 2.5)
+    enter = L.get("enter") or ("pop" if L["pop"] else "none")
+    u = (t - cs) / CAP_POP
+    if u < 1 and enter == "pop":
+        sc, op = 0.7 + 0.3 * _back_out(u), min(1.0, u * 2.5)
+    elif u < 1 and enter == "fade":
+        op = max(0.0, u)
     return i, j, round(sc, 4), round(op, 4), round(wp * CAP_WORD_FRAMES) / CAP_WORD_FRAMES
 
 
@@ -683,6 +688,8 @@ def _draw_caption(img, L, state, P, ss=SS):
             wsc, lift = 1 + 0.22 * math.sin(math.pi * wp), size * 0.16 * math.sin(math.pi * wp)
         elif k == j and motion == "stagger":
             wsc = 0.55 + 0.45 * _back_out(wp)
+        elif k == j and motion == "zoom":
+            wsc = 1 + 0.18 * _back_out(wp)                  # the spoken word grows and stays big while it is said
         wf, wsw = font, sw
         if wsc != 1.0:                                       # the animated word grows / shrinks around its own centre
             wf, wsw = _lfont(L, size * sc * ss * wsc), int(round(L["stroke_w"] * sc * ss * wsc))

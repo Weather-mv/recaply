@@ -24,10 +24,13 @@ def is_filler(word: str) -> bool:
 
 
 def keep_segments(words: list[dict], duration: float, max_gap: float = 0.6, keep_gap: float = 0.2,
-                  fillers: bool = True, silences: bool = True) -> tuple[list[tuple[float, float]], list[dict]]:
+                  fillers: bool = True, silences: bool = True,
+                  content_gap: float | None = None) -> tuple[list[tuple[float, float]], list[dict]]:
     """
     Segments of [0, duration] to keep, and the kept words re-timed to the
     output. With no words (or nothing to remove) the whole clip is kept.
+    `content_gap`: a stretch without speech longer than this is content
+    (gameplay between callouts), not dead air, and is kept. None = cut all.
     """
     words = sorted((w for w in words if 0 <= w["s"] < duration), key=lambda w: w["s"])
     if not words or not (fillers or silences):
@@ -36,7 +39,7 @@ def keep_segments(words: list[dict], duration: float, max_gap: float = 0.6, keep
     prev_end = 0.0
     for i, w in enumerate(words):
         gap = w["s"] - prev_end
-        if silences and gap > max_gap:
+        if silences and gap > max_gap and not (content_gap and gap > content_gap):
             # keep keep_gap/2 after the previous word and before this one
             cuts.append((prev_end + keep_gap / 2, w["s"] - keep_gap / 2))
         if fillers and is_filler(w["w"]):
@@ -45,7 +48,7 @@ def keep_segments(words: list[dict], duration: float, max_gap: float = 0.6, keep
             prev_end = max(prev_end, w["s"])          # the next gap is measured from the filler's start
             continue
         prev_end = max(prev_end, w["e"])
-    if silences and duration - prev_end > max_gap:
+    if silences and duration - prev_end > max_gap and not (content_gap and duration - prev_end > content_gap):
         cuts.append((prev_end + keep_gap / 2, duration))
     # merge overlapping cuts
     cuts.sort()

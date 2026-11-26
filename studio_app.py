@@ -77,6 +77,21 @@ def capabilities():
     return jsonify({**clip_routes.short_choices(), "languages": [{"key": k, "label": v} for k, v in LANGUAGES.items()]})
 
 
+@bp.route("/api/studio/caption-font/<key>")
+def caption_font(key):
+    """A caption font file, so the Director's live preview draws captions with the font the export uses."""
+    from flask import abort, send_file
+
+    from recaply.render import brand
+    if key not in brand.FONT_CHOICES:
+        abort(404)
+    path = brand.choice_path(key)
+    if not path:
+        abort(404)
+    r = send_file(path, mimetype="font/otf" if path.lower().endswith(".otf") else "font/ttf", max_age=86400)
+    return r
+
+
 @bp.route("/api/studio/system")
 def system_stats():
     """CPU / RAM / GPU load for the dashboard widget (this PC; nothing leaves it)."""
