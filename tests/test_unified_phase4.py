@@ -178,6 +178,8 @@ def test_live_page_never_starts_a_normal_project(monkeypatch):
     monkeypatch.setattr(clip_routes, "_start", lambda *a, **k: started.append(a) or "0123456789")
     monkeypatch.setattr(live_routes, "available", lambda: True)
     monkeypatch.setattr(live_routes, "is_live_link", lambda url: "twitch.tv" in url)
+    from recaply.live import links
+    monkeypatch.setattr(links, "video_status", lambda url: "ended" if "OIeLbmyraRQ" in url else "video")
     watched = []
     monkeypatch.setattr(live_routes, "watch_link", lambda url, profile="gaming": watched.append(url) or "name")
     app = Flask(__name__)
@@ -189,5 +191,8 @@ def test_live_page_never_starts_a_normal_project(monkeypatch):
     no = c.post("/api/studio/projects", json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "live_only": True})
     assert no.status_code == 400 and "isn't live" in no.get_json()["error"] and started == []     # no project was created
     assert c.post("/api/studio/projects", json={"url": os.path.abspath(__file__), "live_only": True}).status_code == 400
+    ended = c.post("/api/studio/projects", json={"url": "https://www.youtube.com/live/OIeLbmyraRQ", "live_only": True})
+    assert ended.status_code == 200 and ended.get_json()["ended"] and ended.get_json()["id"] and len(started) == 1
+    started.clear()                                                                   # an ended stream: clipped as a video
     normal = c.post("/api/studio/projects", json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"})
     assert normal.status_code == 200 and started                                                     # without live_only: a normal project

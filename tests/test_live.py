@@ -370,6 +370,29 @@ def test_channel_that_is_not_live_ends_when_waiting_is_off(tmp_path):
     assert w.state == "ended" and "isn't live" in w.note and w.clips == []
 
 
+def test_a_broadcast_that_has_ended_is_not_recorded(monkeypatch):
+    from recaply.live import links
+    import live_routes as lr
+    status = {"https://www.youtube.com/live/OIeLbmyraRQ": "ended", "https://www.youtube.com/live/QjbepgVChIA": "live",
+              "https://www.youtube.com/watch?v=soonsoonsoo": "upcoming", "https://youtu.be/dQw4w9WgXcQ": "video"}
+    monkeypatch.setattr(links, "video_status", status.get)
+    assert not lr.is_live_link("https://www.youtube.com/live/OIeLbmyraRQ")          # was live: a video now
+    assert lr.is_live_link("https://www.youtube.com/live/QjbepgVChIA")
+    assert lr.is_live_link("https://www.youtube.com/watch?v=soonsoonsoo")           # scheduled: wait for it
+    assert not lr.is_live_link("https://youtu.be/dQw4w9WgXcQ")
+    assert lr.is_live_link("https://www.youtube.com/@VALORANT/live")                # channels: no lookup needed
+    assert links.ended("https://www.youtube.com/live/OIeLbmyraRQ") and not links.ended("https://www.twitch.tv/somebody")
+
+
+def test_a_saved_channel_for_an_ended_broadcast_stops_instead_of_waiting(monkeypatch, tmp_path):
+    from recaply.live import links
+    monkeypatch.setattr(links, "video_status", lambda url: "ended")
+    cfg = make_cfg(name="oldstream", url="https://www.youtube.com/live/OIeLbmyraRQ",
+                   source_cmd=["python3", "-c", "import sys; sys.exit(1)"], poll_sec=60)
+    w = run_worker(cfg, lambda *a: "x", tmp_path, 15)
+    assert w.state == "ended" and "has ended" in w.note and w.clips == []
+
+
 def test_waiting_channel_can_be_stopped(tmp_path):
     cfg = make_cfg(name="waiter", source_cmd=["python3", "-c", "import sys; sys.exit(1)"], poll_sec=60)
     w = ChannelWorker(cfg, root=str(tmp_path / "live"), submit=lambda *a: "x", tick=1)
@@ -507,7 +530,9 @@ def _live_client(monkeypatch, uid=1):
 
 
 def test_live_links_are_recognised_and_watched(monkeypatch):
+    from recaply.live import links
     lr, mgr, c = _live_client(monkeypatch)
+    monkeypatch.setattr(links, "video_status", lambda url: "live")
     for u in ("https://www.youtube.com/live/QjbepgVChIA", "https://youtube.com/@VALORANT/live",
               "https://www.twitch.tv/somechannel", "https://kick.com/some-channel"):
         assert lr.is_live_link(u), u

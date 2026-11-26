@@ -1,6 +1,6 @@
 import { AlertCircle, Bell, CheckCircle2, ChevronDown, Clapperboard, Link2, Loader2, Play, Radio, Scissors, Square, Trash2, Wifi, WifiOff } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -65,6 +65,7 @@ function CommandBar({ profiles, onAdded }: { profiles: { key: string; label: str
   const [profile, setProfile] = useState("gaming");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const nav = useNavigate();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,8 +73,12 @@ function CommandBar({ profiles, onAdded }: { profiles: { key: string; label: str
     setBusy(true);
     setError("");
     try {
-      await api<{ live?: boolean }>("/api/studio/projects", { json: { url: url.trim(), profile, live_only: true } });
+      const r = await api<{ live?: boolean; id?: string }>("/api/studio/projects", { json: { url: url.trim(), profile, live_only: true } });
       setUrl("");
+      if (r.id) {
+        nav(`/p/${r.id}`); // the stream has ended: it was started as a normal video project
+        return;
+      }
       onAdded();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
@@ -203,11 +208,11 @@ function Channel({ ch, onChange }: { ch: LiveChannel; onChange: () => void }) {
             <a href={ch.url} target="_blank" rel="noreferrer" className="block truncate text-xs text-muted-foreground hover:text-foreground hover:underline">{ch.url}</a>
           </div>
           {running ? (
-            <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => act("stop", `${base}/stop`)}>
+            <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => act("stop", `${base}/stop`, undefined, "POST")}>
               {busy === "stop" ? <Loader2 className="animate-spin" /> : <Square />} Stop
             </Button>
           ) : (
-            <Button size="sm" disabled={!!busy} onClick={() => act("start", `${base}/start`)}>
+            <Button size="sm" disabled={!!busy} onClick={() => act("start", `${base}/start`, undefined, "POST")}>
               {busy === "start" ? <Loader2 className="animate-spin" /> : <Play />} Start
             </Button>
           )}

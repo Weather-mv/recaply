@@ -26,7 +26,7 @@ import threading
 import time
 from typing import Callable
 
-from recaply.live import notify
+from recaply.live import links, notify
 from recaply.live.buffer import Buffer
 from recaply.live.chat import listener_for
 from recaply.live.config import ChannelConfig
@@ -152,6 +152,9 @@ class ChannelWorker(threading.Thread):
 
     def _run(self) -> None:
         cfg = self.cfg
+        if links.ended(cfg.url):                    # one YouTube broadcast that is over: it's a video now, not a stream
+            self.state, self.note = "ended", links.ENDED_NOTE
+            return
         os.makedirs(self.clips_dir, exist_ok=True)
         buf = self.buf = Buffer(self.buffer_dir)
         profile = get_profile(cfg.profile)

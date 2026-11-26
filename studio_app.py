@@ -148,6 +148,11 @@ def create_project():
             except Exception as e:  # noqa: BLE001 — shown to the user as is
                 return jsonify({"error": f"Couldn't start live clipping: {e}"}), 400
             return jsonify({"live": True, "redirect": "/studio/live"})
+        from recaply.live import links
+        if body.get("live_only") and links.is_video_link(text) and links.video_status(text) == "ended":
+            # the Live page, with a broadcast that has already ended: it's a video now, so clip it as one
+            jid = clip_routes._start(text, opts, title="")
+            return jsonify({"id": jid, "ended": True, "message": "That stream has ended, so Clipforge is clipping it as a video."})
         if body.get("live_only"):                    # the Live page: never start a normal project from a link that isn't live
             return jsonify({"error": "That link isn't live right now. Paste it on the Projects page to clip it as a video, "
                                      "or use a channel link (twitch.tv/name, kick.com/name) to wait for it to go live."}), 400

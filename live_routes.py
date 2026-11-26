@@ -171,11 +171,6 @@ def start_enabled() -> list[str]:
         return []
 
 
-_LIVE_URL = __import__("re").compile(
-    r"^https?://(www\.|m\.)?(youtube\.com/(live/|(@[\w.-]+|channel/[\w-]+|c/[\w.-]+|user/[\w.-]+)/live)|"
-    r"twitch\.tv/[A-Za-z0-9_]{3,25}/?(\?.*)?$|kick\.com/[A-Za-z0-9_-]{3,25}/?(\?.*)?$)", __import__("re").I)
-
-
 def channel_name_for(url: str) -> str:
     """A short, valid, unique-enough channel name from a link."""
     import hashlib
@@ -185,16 +180,10 @@ def channel_name_for(url: str) -> str:
 
 
 def is_live_link(url: str) -> bool:
-    """True when `url` is a live link: by its shape, or (for a plain YouTube watch link) by asking YouTube."""
-    if _LIVE_URL.match(url or ""):
-        return True
-    if "youtube.com/watch" in (url or "") or "youtu.be/" in (url or ""):
-        try:
-            from recaply.ingest.sources import resolve
-            return bool(resolve(url).is_live)
-        except Exception:  # noqa: BLE001 — not live as far as we can tell; the normal job reports its own problem
-            return False
-    return False
+    """True when Live mode should record `url`: a channel link, or one YouTube broadcast that is on air (or
+    scheduled). A stream that has ended is an ordinary video and goes to the normal clip job instead."""
+    from recaply.live.links import should_watch
+    return should_watch(url)
 
 
 def watch_link(url: str, profile: str = "gaming") -> str:
