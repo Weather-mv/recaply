@@ -34,6 +34,23 @@ for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "rapidocr", "yt_dlp"
     binaries += b
     hiddenimports += h
 datas += collect_data_files("certifi")
+
+# GPU speech-to-text: build.ps1 -WithCuda bundles the CUDA 12 cuBLAS / cuDNN DLLs from the .venv's
+# nvidia-* packages (about 2 GB more) into nvidia/<pkg>/bin, where captions.py looks for them.
+# Without it, installed copies transcribe on the CPU and log a loud warning.
+WITH_CUDA = os.environ.get("RECAPLY_BUNDLE_CUDA") == "1"
+if WITH_CUDA:
+    import glob
+    import nvidia
+    found = 0
+    for base in nvidia.__path__:
+        for pkg in ("cublas", "cudnn", "cuda_nvrtc"):
+            for dll in glob.glob(os.path.join(base, pkg, "bin", "*.dll")):
+                binaries.append((dll, f"nvidia/{pkg}/bin"))
+                found += 1
+    if not found:
+        raise SystemExit("-WithCuda: no CUDA DLLs found. Run: .venv\Scripts\pip install -r requirements-gpu.txt")
+    print(f"Bundling {found} CUDA DLLs for GPU speech-to-text")
 # onnxruntime's model-conversion tools aren't used at runtime, and their deep paths can pass
 # Windows' 260-character limit when the app is installed in a long folder.
 _dev_only = ("onnxruntime/tools", "onnxruntime/quantization", "onnxruntime/transformers")
@@ -50,7 +67,7 @@ a = Analysis(
     excludes=[
         # not used by the Windows app
         "boto3", "botocore", "s3transfer", "storage_tests", "moto",
-        # optional GPU caption libraries (~2 GB); captions run on the CPU without them
+        # the nvidia-* Python packages themselves: with -WithCuda only their DLLs are bundled (above)
         "nvidia",
         # build and dev tools
         "PyInstaller", "pip", "setuptools", "tkinter", "pydevd", "IPython", "pytest", "matplotlib",

@@ -4,6 +4,8 @@
     powershell -ExecutionPolicy Bypass -File build\build.ps1 -CloudUrl https://recaply.example.com
 
   -CloudUrl   the online service the app signs in to (default: http://127.0.0.1:8000 for testing)
+  -WithCuda   bundle the CUDA 12 cuBLAS / cuDNN DLLs (pip install -r requirements-gpu.txt first; ~2 GB)
+              so installed copies transcribe on NVIDIA GPUs instead of the CPU
   -NoInstaller  stop after the app folder (dist\Recaply)
 
   Needs: the project's .venv (with requirements + pyinstaller + pywebview),
@@ -13,7 +15,8 @@
 #>
 param(
   [string]$CloudUrl = "http://127.0.0.1:8000",
-  [switch]$NoInstaller
+  [switch]$NoInstaller,
+  [switch]$WithCuda          # bundle the CUDA cuBLAS / cuDNN DLLs (about 2 GB) so speech-to-text runs on NVIDIA GPUs
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"      # PowerShell 5's progress bar makes downloads crawl
@@ -60,6 +63,7 @@ VSVersionInfo(
 & $Py (Join-Path $Build "make_icon.py") (Join-Path $Build "recaply.ico") | Out-Null
 
 # ---- the app folder ----
+if ($WithCuda) { $env:RECAPLY_BUNDLE_CUDA = "1" } else { Remove-Item Env:RECAPLY_BUNDLE_CUDA -ErrorAction SilentlyContinue }
 & $Py -m PyInstaller --noconfirm --clean --log-level WARN --distpath $Dist --workpath (Join-Path $Build "work") (Join-Path $Build "recaply.spec")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 $App = Join-Path $Dist "Recaply"

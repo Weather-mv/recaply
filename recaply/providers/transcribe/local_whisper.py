@@ -60,16 +60,17 @@ class LocalWhisper(Transcriber):
         return f"fw-{self._pick()[0]}"
 
     def _load(self):
-        from faster_whisper import WhisperModel
+        """The shared, warm model (captions.get_model); CUDA failing falls back to the CPU loudly."""
+        import captions
         name, dev, ctype = self._pick()
-        try:
-            return WhisperModel(name, device=dev, compute_type=ctype), dev
-        except Exception:  # noqa: BLE001 — e.g. CUDA runtime missing: CPU fallback
-            if dev == "cpu":
-                raise
-            self._device = ("cpu", "int8")
-            return WhisperModel(self._model_override or settings.whisper_model_cpu,
-                                device="cpu", compute_type="int8"), "cpu"
+        model, got_dev, got_ctype = captions.get_model(name, dev, ctype)
+        if got_dev != dev:
+            self._device = (got_dev, got_ctype)
+            if self._model_override is None and name != settings.whisper_model_cpu:
+                del model                                   # the GPU-sized model on a CPU is too slow: use the CPU one
+                captions.release()
+                model, got_dev, _ = captions.get_model(settings.whisper_model_cpu, got_dev, got_ctype)
+        return model, got_dev
 
     def transcribe_spans(self, audio_path, spans, vocab="", language=None,
                          progress: Callable[[float], None] | None = None):
@@ -122,4 +123,4 @@ class LocalWhisper(Transcriber):
                 return [drop_hallucinations(ws) for ws in out]
             finally:
                 del model
-                gc.collect()
+                captions.release()

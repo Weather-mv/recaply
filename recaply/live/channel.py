@@ -284,8 +284,10 @@ class ChannelWorker(threading.Thread):
     # ---------- spikes and clips ----------
 
     def clip_now(self, seconds: float) -> dict:
-        """Cut the last `seconds` of the stream right now (what just happened) and hand it to the clip pipeline.
-        Raises RuntimeError with a reason the page can show when there is nothing to cut yet."""
+        """Cut the last `seconds` of the stream (what just happened) and hand it to the clip pipeline.
+        The cut runs on the cutter thread, so the page gets its answer at once instead of waiting for
+        ffmpeg; the clip appears in `clips` (and a "clip captured" note) when it is done. Raises
+        RuntimeError with a reason the page can show when there is nothing to cut yet."""
         buf = self.buf
         if buf is None or self.state != "recording" or buf.length < 3:
             raise RuntimeError("Nothing is being recorded right now.")
@@ -294,24 +296,10 @@ class ChannelWorker(threading.Thread):
         t0 = max(buf.oldest, t1 - seconds)
         if t1 - t0 < 3:
             raise RuntimeError("Not enough has been recorded yet.")
-        out = os.path.join(self.clips_dir, f"clip_{int(t1):06d}_manual.mp4")
-        cid = self._hold(t0)
-        try:
-            buf.cut(t0, t1, out)
-        finally:
-            self._release(cid)
         info = {"t": round(t1, 1), "clock": _clock(t1), "score": 0.0, "signals": {}, "manual": True,
-                "file": out, "start": round(t0, 1), "end": round(t1, 1)}
-        try:
-            info["job"] = self.submit(self.cfg, out, info)
-        except Exception as e:  # noqa: BLE001
-            log.error("clip job not started", channel=self.cfg.name, error=str(e)[:200])
-            info["error"] = str(e)[:200]
-        self.clips.append(info)
-        notify.send(self.cfg, "clip_captured", title=f"{self.cfg.name}: clip captured",
-                    text=f"The last {int(t1 - t0)} s were cut; ranking and titling it in the background.",
-                    job=info.get("job"), file=os.path.basename(out), t=t1, clock=info["clock"])
-        return info
+                "start": round(t0, 1), "end": round(t1, 1)}
+        self._queue_cut(Spike(t=int(t1), score=0.0, start=int(t0), end=int(t1)), info, t0, t1)
+        return {**info, "queued": True}
 
     def _spike(self, sp: Spike, sig: dict, off: int) -> dict:
         self.spikes += 1
@@ -332,9 +320,12 @@ class ChannelWorker(threading.Thread):
 
     def _hold(self, t0: float) -> int:
         with self._cut_lock:
-            self._cut_ids += 1
-            self._cutting[self._cut_ids] = t0
-            return self._cut_ids
+            return self._hold_locked(t0)
+
+    def _hold_locked(self, t0: float) -> int:
+        self._cut_ids += 1
+        self._cutting[self._cut_ids] = t0
+        return self._cut_ids
 
     def _release(self, cid: int) -> None:
         with self._cut_lock:
@@ -351,7 +342,12 @@ class ChannelWorker(threading.Thread):
             t1 = min(buf.length, sp.t + self.cfg.post)
             if t1 - t0 < 3:
                 continue
-            self._cuts.put((sp, info, t0, t1, self._hold(t0)))
+            self._queue_cut(sp, info, t0, t1)
+
+    def _queue_cut(self, sp: Spike, info: dict, t0: float, t1: float) -> None:
+        """Give one cut to the cutter thread (started when needed); the buffer from t0 is kept until it's done."""
+        with self._cut_lock:
+            self._cuts.put((sp, info, t0, t1, self._hold_locked(t0)))
             if self._cutter is None or not self._cutter.is_alive():
                 self._cutter = threading.Thread(target=self._cut_loop, daemon=True, name=f"live-cut-{self.cfg.name}")
                 self._cutter.start()
@@ -385,7 +381,7 @@ class ChannelWorker(threading.Thread):
         buf = self.buf
         if buf is None:
             return
-        out = os.path.join(self.clips_dir, f"clip_{int(sp.t):06d}.mp4")
+        out = os.path.join(self.clips_dir, f"clip_{int(sp.t):06d}{'_manual' if info.get('manual') else ''}.mp4")
         try:
             started = time.time()
             buf.cut(t0, t1, out)
@@ -402,5 +398,6 @@ class ChannelWorker(threading.Thread):
             rec["error"] = str(e)[:200]
         self.clips.append(rec)
         notify.send(self.cfg, "clip_captured", title=f"{self.cfg.name}: clip captured",
-                    text=f"{_clock(t0)} - {_clock(t1)} cut; ranking and titling it in the background.",
+                    text=(f"The last {int(t1 - t0)} s were cut" if info.get("manual") else f"{_clock(t0)} - {_clock(t1)} cut")
+                    + "; ranking and titling it in the background.",
                     job=rec.get("job"), file=os.path.basename(out), t=sp.t, clock=info["clock"])

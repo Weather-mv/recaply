@@ -18,8 +18,8 @@ opencv-python==5.0.0.93
 pillow>=12.0
 # editor: auto captions (Whisper speech to text with word timings)
 faster-whisper>=1.2.1
-# GPU speed-up for captions on NVIDIA cards (optional, ~1 GB):
-#   pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
+# GPU speed-up for speech-to-text on NVIDIA cards (optional, ~2 GB): see requirements-gpu.txt
+#   pip install -r requirements-gpu.txt
 
 onnxruntime==1.30.0
 rapidocr==3.9.2

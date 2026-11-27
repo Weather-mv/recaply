@@ -188,7 +188,7 @@ function Channel({ ch, onChange }: { ch: LiveChannel; onChange: () => void }) {
     setMsg(null);
     try {
       await api(path, { method, json });
-      if (what.startsWith("clip")) setMsg({ ok: true, text: "Clipped. It's being ranked and titled now." });
+      if (what.startsWith("clip")) setMsg({ ok: true, text: "Cutting it now. It shows up under captured moments, then gets ranked and titled." });
       onChange();
     } catch (e) {
       setMsg({ ok: false, text: e instanceof ApiError ? e.message : "That didn't work." });

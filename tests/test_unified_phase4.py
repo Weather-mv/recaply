@@ -117,15 +117,21 @@ def test_clip_the_last_seconds_while_recording(tmp_path):
         while time.time() < deadline and not (w.state == "recording" and w.buf and w.buf.length >= 12):
             time.sleep(0.5)
         assert w.state == "recording", (w.state, w.note)
+        t = time.perf_counter()
         info = w.clip_now(8)
+        answered = time.perf_counter() - t
         st = w.status()
         assert st["buffer_mb"] > 0 and st["buffer_limit_mb"] == 4096 and st["reconnects"] == 0 and st["reconnecting"] is False
+        deadline = time.time() + 60                                  # the cut finishes on the cutter thread
+        while time.time() < deadline and not w.clips:
+            time.sleep(0.2)
     finally:
         w.stop()
         w.join(30)
-    assert info["manual"] is True and info["job"] == "job-m" and 6 <= info["end"] - info["start"] <= 9
+    assert info["manual"] is True and info["queued"] is True and 6 <= info["end"] - info["start"] <= 9
+    assert answered < 0.5                                            # the page isn't kept waiting for ffmpeg
     assert calls and calls[0][0].endswith("_manual.mp4")
-    assert w.clips and w.clips[0]["manual"]
+    assert w.clips and w.clips[0]["manual"] and w.clips[0]["job"] == "job-m"
 
 
 # ---------- the route
