@@ -61,10 +61,13 @@ interface WorkspaceProps {
   back?: { to: string; label: string } | null;
   /** extra controls at the right of the title row */
   actions?: ReactNode;
+  /** less width than the whole page (the Editor's media bin is open): the transcript moves under the
+   *  preview and settings until the screen is wide enough (2xl) for three columns */
+  narrow?: boolean;
 }
 
 /** Every Director tool for one clip: transcript, 9:16 preview, layout, captions, export and the timeline. */
-export function DirectorWorkspace({ id, clipId, frame = (c) => c, back, actions }: WorkspaceProps) {
+export function DirectorWorkspace({ id, clipId, frame = (c) => c, back, actions, narrow = false }: WorkspaceProps) {
   const { job, error, gone, refresh } = useJob(id);
   const { caps, session } = useBoot();
 
@@ -277,9 +280,16 @@ export function DirectorWorkspace({ id, clipId, frame = (c) => c, back, actions 
         {actions}
       </div>
 
-      <div className="grid gap-4 lg:h-[calc(100vh-24rem)] lg:min-h-[480px] lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_minmax(300px,360px)]">
+      <div
+        className={cn(
+          "grid gap-4",
+          narrow
+            ? "lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] 2xl:h-[calc(100vh-24rem)] 2xl:min-h-[480px] 2xl:grid-cols-[minmax(260px,340px)_minmax(0,1fr)_minmax(300px,360px)]"
+            : "lg:h-[calc(100vh-24rem)] lg:min-h-[480px] lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_minmax(300px,360px)]",
+        )}
+      >
         {/* transcript */}
-        <div className="h-[420px] min-h-0 lg:h-auto">
+        <div className={cn("h-[420px] min-h-0", narrow ? "lg:order-last lg:col-span-2 2xl:order-none 2xl:col-span-1 2xl:h-auto" : "lg:h-auto")}>
           {ws.status === "ready" ? (
             <TranscriptPanel
               words={words}
@@ -310,7 +320,7 @@ export function DirectorWorkspace({ id, clipId, frame = (c) => c, back, actions 
         </div>
 
         {/* 9:16 preview */}
-        <div className="flex min-h-[460px] min-w-0 flex-col items-center gap-3">
+        <div className={cn("flex min-h-[460px] min-w-0 flex-col items-center gap-3", narrow && "lg:h-[560px] 2xl:h-auto")}>
           <div className="min-h-0 w-full flex-1">
             <ReframeCanvas
               getVideo={getVideo}
@@ -346,7 +356,7 @@ export function DirectorWorkspace({ id, clipId, frame = (c) => c, back, actions 
         </div>
 
         {/* export */}
-        <div className="flex h-[560px] min-h-0 flex-col gap-2 lg:h-auto">
+        <div className={cn("flex h-[560px] min-h-0 flex-col gap-2", narrow ? "2xl:h-auto" : "lg:h-auto")}>
           <div role="tablist" aria-label="Director panels" className="grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1">
             {([["export", "Layout & export", Film], ["captions", "Captions", Type]] as const).map(([key, label, Icon]) => (
               <button

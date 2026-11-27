@@ -364,6 +364,7 @@ export default function Editor() {
               id={selected.job}
               clipId={selected.clip}
               back={null}
+              narrow={binOpen}
               actions={
                 <>
                   <Button variant="ghost" size="sm" onClick={() => setBinOpen((b) => !b)} aria-label={binOpen ? "Hide media" : "Show media"}>

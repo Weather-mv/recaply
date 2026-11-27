@@ -16,7 +16,7 @@ def _job(owner, state, age_days, key=None):
                     (time.time() - age_days * 86400,) * 2 + (jid,))
     os.makedirs(job_dir(jid), exist_ok=True)
     with open(os.path.join(job_dir(jid), "clip.mp4"), "wb") as f:
-        f.write(b"\0" * 5000)
+        f.write(bytes(5000))
     return jid
 
 
@@ -25,7 +25,7 @@ def _cache(key, age_days):
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, "audio.m4a")
     with open(p, "wb") as f:
-        f.write(b"\0" * 3000)
+        f.write(bytes(3000))
     t = time.time() - age_days * 86400
     os.utime(p, (t, t))
     os.utime(d, (t, t))
@@ -67,4 +67,18 @@ def test_the_keep_setting_is_validated_and_saved():
     cleanup.set_days(0)
     assert cleanup.get_days() == 0
     u = cleanup.usage()
-    assert u["total"] >= u["projects"] and set(u) == {"projects", "cache", "live", "other", "total"}
+    assert u["total"] >= u["projects"] and {"projects", "cache", "live", "legacy", "other", "total"} <= set(u)
+
+
+def test_old_version_folders_are_found_and_only_they_are_deleted():
+    root = settings.data_dir
+    old = os.path.join(root, "0123456789")                  # a Recaply 2 recap
+    keep = os.path.join(root, "my-videos")                  # not ours: never touched
+    for d in (old, keep):
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "clip_01.mp4"), "wb") as f:
+            f.write(bytes(4000))
+    assert old in cleanup.legacy_folders() and keep not in cleanup.legacy_folders()
+    assert not any(p.endswith(("_clipjobs", "_cache", "_live")) for p in cleanup.legacy_folders())
+    freed = cleanup.clean_legacy()
+    assert freed["bytes"] >= 4000 and not os.path.isdir(old) and os.path.isdir(keep)

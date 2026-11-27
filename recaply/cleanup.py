@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import threading
 import time
@@ -132,13 +133,42 @@ def clean(owner, days: int, everyone: bool = False) -> dict:
     return freed
 
 
+_LEGACY_ID = re.compile(r"^[0-9a-f]{10}$")
+_LEGACY_DIRS = ("_editor", "_zips")
+
+
+def legacy_folders() -> list[str]:
+    """Files from the previous version that nothing in the app opens any more: Recaply 2 recaps
+    (`<data dir>/<10 hex>/`, clips, frames and zips) and the classic editor's `_editor` / `_zips`."""
+    root = settings.data_dir
+    if not os.path.isdir(root):
+        return []
+    return [os.path.join(root, n) for n in sorted(os.listdir(root))
+            if (_LEGACY_ID.match(n) or n in _LEGACY_DIRS) and os.path.isdir(os.path.join(root, n))]
+
+
+def clean_legacy() -> dict:
+    """Delete the previous version's files. Returns {"folders", "bytes"}."""
+    with _lock:
+        freed = {"folders": 0, "bytes": 0}
+        for p in legacy_folders():
+            freed["bytes"] += _size(p)
+            shutil.rmtree(p, ignore_errors=True)
+            freed["folders"] += 1
+    log.info("old-version files deleted", **freed)
+    return freed
+
+
 def usage() -> dict:
-    """Bytes used in the data folder: projects, caches, Live buffers and everything else."""
+    """Bytes used in the data folder: projects, caches, Live buffers, the old version's files, the rest."""
     root = settings.data_dir
     parts = {"projects": os.path.join(root, "_clipjobs"), "cache": _cache_root(), "live": os.path.join(root, "_live")}
     out = {k: _size(p) if os.path.isdir(p) else 0 for k, p in parts.items()}
+    legacy = legacy_folders()
+    out["legacy"] = sum(_size(p) for p in legacy)
+    out["legacy_folders"] = len(legacy)
     out["total"] = _size(root) if os.path.isdir(root) else 0
-    out["other"] = max(0, out["total"] - sum(out[k] for k in parts))
+    out["other"] = max(0, out["total"] - sum(out[k] for k in parts) - out["legacy"])
     return out
 
 

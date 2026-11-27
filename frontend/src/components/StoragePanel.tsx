@@ -69,6 +69,23 @@ export function StoragePanel() {
     }
   };
 
+  const cleanLegacy = async () => {
+    const u0 = data?.usage;
+    if (!u0?.legacy) return;
+    if (!window.confirm(`Delete ${u0.legacy_folders} folders from the previous version (${fmtBytes(u0.legacy)})? Old recaps, their clips and the classic editor's files are removed for good.`)) return;
+    setBusy("legacy");
+    setMsg(null);
+    try {
+      const r = await api<{ freed: { folders: number; bytes: number } }>("/api/studio/storage/legacy", { json: {} });
+      setMsg({ ok: true, text: `Deleted ${r.freed.folders} old folders, ${fmtBytes(r.freed.bytes)}.` });
+      await load(ask);
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof ApiError ? e.message : "Couldn't delete them." });
+    } finally {
+      setBusy("");
+    }
+  };
+
   const u = data?.usage;
   const p = data?.preview;
   return (
@@ -78,8 +95,20 @@ export function StoragePanel() {
       {u && (
         <p className="text-sm">
           Clipforge is using <b>{fmtBytes(u.total)}</b>: projects {fmtBytes(u.projects)}, analysis cache {fmtBytes(u.cache)}
-          {u.live ? `, live recordings ${fmtBytes(u.live)}` : ""}, other {fmtBytes(u.other)}.
+          {u.live ? `, live recordings ${fmtBytes(u.live)}` : ""}
+          {u.legacy ? `, files from the previous version ${fmtBytes(u.legacy)}` : ""}, other {fmtBytes(u.other)}.
         </p>
+      )}
+      {u && u.legacy > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 sm:flex-row sm:items-center">
+          <p className="flex-1 text-sm">
+            <b>{fmtBytes(u.legacy)}</b> is used by {u.legacy_folders} folder{u.legacy_folders === 1 ? "" : "s"} from the previous version (old round recaps
+            and the classic editor). Nothing in the app opens them any more.
+          </p>
+          <Button type="button" variant="secondary" onClick={cleanLegacy} disabled={busy !== ""}>
+            {busy === "legacy" ? <Loader2 className="animate-spin" /> : <Trash2 />} Delete old-version files
+          </Button>
+        </div>
       )}
       {data && (
         <div className="space-y-2">

@@ -223,6 +223,15 @@ def storage_clean():
     return jsonify({"ok": True, "freed": freed, "usage": cleanup.usage()})
 
 
+@bp.route("/api/studio/storage/legacy", methods=["POST"])
+def storage_clean_legacy():
+    """Delete the previous version's files (old recaps, the classic editor's files)."""
+    from recaply import cleanup
+    if not _can_configure():
+        return jsonify({"error": "Storage can only be managed on the PC that runs Clipforge."}), 403
+    return jsonify({"ok": True, "freed": cleanup.clean_legacy(), "usage": cleanup.usage()})
+
+
 @bp.route("/api/studio/settings/test", methods=["POST"])
 def user_settings_test():
     """One tiny request to a provider, so the user knows its key works. Says why when it doesn't."""

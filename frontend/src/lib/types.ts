@@ -291,6 +291,8 @@ export interface StorageUsage {
   projects: number;
   cache: number;
   live: number;
+  legacy: number;
+  legacy_folders: number;
   other: number;
   total: number;
 }
