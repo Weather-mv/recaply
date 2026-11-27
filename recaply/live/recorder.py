@@ -21,6 +21,7 @@ from recaply.log import get_logger
 
 log = get_logger("live.recorder")
 QUALITY = "720p60,720p,480p,best"           # the detector needs sound; the clip pipeline reads this recording
+YTDLP_FORMAT = "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"
 
 
 def producer_cmd(cfg: ChannelConfig) -> list[str]:
@@ -31,8 +32,11 @@ def producer_cmd(cfg: ChannelConfig) -> list[str]:
         # two segment downloads in parallel keep up after a hiccup; a stream silent for a minute is given up on
         return ["streamlink", "--stdout", "--loglevel", "error", "--retry-streams", "3", "--retry-max", "2",
                 "--stream-segment-threads", "2", "--stream-timeout", "60", cfg.url, QUALITY]
+    # YouTube serves live streams as separate video and audio tracks (there is no combined "best"), so
+    # ffmpeg reads both and writes one MPEG-TS stream to stdout; a combined format is used when there is one.
     return [sys.executable, "-m", "yt_dlp", "-q", "--no-warnings", "--no-part", "-o", "-",
-            "--retries", "10", "--fragment-retries", "10", "-f", "best[height<=720]/best", cfg.url]
+            "--retries", "10", "--fragment-retries", "10", "--downloader", "ffmpeg", "--hls-use-mpegts",
+            "-f", YTDLP_FORMAT, cfg.url]
 
 
 def segmenter_cmd(folder: str, segment_sec: int, start_index: int) -> list[str]:
