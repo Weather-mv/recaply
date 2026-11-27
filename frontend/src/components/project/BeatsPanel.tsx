@@ -17,7 +17,8 @@ export function BeatBar({ clip, className }: { clip: Clip; className?: string })
   );
 }
 
-export function ScoreDot({ score, className }: { score: number; className?: string }) {
+export function ScoreDot({ score, className }: { score: number | null | undefined; className?: string }) {
+  if (score == null) return null; // an Editor import is not ranked
   const tone = score >= 75 ? "bg-beat-payoff/15 text-beat-payoff" : score >= 50 ? "bg-beat-build/15 text-beat-build" : "bg-secondary text-muted-foreground";
   return <span className={cn("inline-grid h-8 min-w-8 place-items-center rounded-full px-2 text-sm font-bold tabular", tone, className)}>{Math.round(score)}</span>;
 }

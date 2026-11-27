@@ -71,6 +71,8 @@ def run_task(job_id: str, task: str = "analyze") -> None:
         _edit(job)
     elif task == "preview":
         _preview(job)
+    elif task == "import":
+        _import(job)
     else:
         raise ValueError(f"unknown task {task}")
 
@@ -120,6 +122,21 @@ def _analyze(job: dict) -> None:
         where = tracker.fail(msg)
         store.update(jid, state="failed", stage=f"Failed while {LABELS[where].lower()}", error=msg,
                      summary=tel.summary(), stages=tracker.stages, log=tracker.log)
+
+
+def _import(job: dict) -> None:
+    """An Editor upload: read the file and make it one editable clip (no analysis)."""
+    from recaply.edit.importer import edit_result
+    jid = job["id"]
+    store.update(jid, state="running", task="import", stage="Reading the video", progress=0.2, error=None)
+    try:
+        opts = job.get("options") or {}
+        result = edit_result(job["input"], job.get("title") or "", opts.get("profile") or "talk")
+        store.update(jid, state="ready", stage="Done", progress=1.0, result=result, title=result["source"]["title"],
+                     summary={})
+    except Exception as e:  # noqa: BLE001
+        log.error("import failed", job=jid, error=str(e)[:300])
+        store.update(jid, state="failed", stage="Failed while reading the video", error=_friendly(e))
 
 
 def kept_cuts(old_clips: list[dict], new_clips: list[dict], cuts: dict) -> dict:

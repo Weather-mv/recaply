@@ -9,6 +9,7 @@ import Projects from "@/pages/Projects";
 import Queue from "@/pages/Queue";
 import Usage from "@/pages/Usage";
 import Director from "@/pages/Director";
+import Editor from "@/pages/Editor";
 import Project from "@/pages/Project";
 import Settings from "@/pages/Settings";
 import "./index.css";
@@ -20,6 +21,7 @@ createRoot(document.getElementById("root")!).render(
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
+          <Route path="/editor" element={<Editor />} />
           <Route path="/brand" element={<BrandKit />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/usage" element={<Usage />} />

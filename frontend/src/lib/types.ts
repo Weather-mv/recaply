@@ -301,3 +301,25 @@ export interface SystemStats {
   gpu: { name: string; percent: number; mem_percent: number; used_gb: number; total_gb: number } | null;
   ts: number;
 }
+
+/** The Editor's media bin: every project with its clips (Editor imports are one-clip projects). */
+export interface LibraryClip {
+  id: number;
+  title: string;
+  start: number;
+  duration: number;
+  score: number | null;
+  exported: boolean;
+}
+export interface LibraryItem {
+  id: string;
+  title: string;
+  state: JobState;
+  created: number;
+  editor: boolean;
+  duration: number | null;
+  thumb: string | null;
+  extractor: string | null;
+  media: { source: boolean; audio: boolean };
+  clips: LibraryClip[];
+}
