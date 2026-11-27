@@ -1,6 +1,7 @@
 import { CheckCircle2, KeyRound, Loader2, ShieldCheck, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { StoragePanel } from "@/components/StoragePanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -179,6 +180,8 @@ export default function Settings() {
                 {data.settings.map((row) => <Row key={row.name} row={row} onSaved={setData} />)}
               </div>
             </Card>
+
+            <StoragePanel />
           </>
         )}
       </div>

@@ -287,6 +287,26 @@ export interface SettingRow {
   value: string;
 }
 
+export interface StorageUsage {
+  projects: number;
+  cache: number;
+  live: number;
+  other: number;
+  total: number;
+}
+export interface CleanupCounts {
+  projects: number;
+  project_bytes: number;
+  caches: number;
+  cache_bytes: number;
+}
+export interface StorageReply {
+  days: number;
+  choices: number[];
+  usage: StorageUsage;
+  preview: (CleanupCounts & { days: number }) | null;
+}
+
 export interface SettingsReply {
   settings: SettingRow[];
   problems: Record<string, string>;

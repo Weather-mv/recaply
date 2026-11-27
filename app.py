@@ -128,6 +128,9 @@ if __name__ != "__mp_main__":
     clip_routes.resume_jobs()
     live_routes.start_enabled()
     studio_routes.start_publish_scheduler()
+    import threading as _threading
+    from recaply import cleanup as _cleanup     # delete old finished projects when the user chose a number of days
+    _threading.Thread(target=_cleanup.run_scheduled, daemon=True, name="cleanup").start()
 
 if __name__ == "__main__":
     # Jobs live in this process's memory, so run ONE process with many threads.

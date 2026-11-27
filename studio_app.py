@@ -186,6 +186,42 @@ def user_settings_api():
                     "providers": ["groq", "gemini", "anthropic", "openai", "ollama"]})
 
 
+@bp.route("/api/studio/storage", methods=["GET", "POST"])
+def storage_api():
+    """Disk use and the clean-up setting. GET ?days=N previews what a clean-up would delete;
+    POST {"days"} saves how many days finished projects are kept (0 = forever)."""
+    from recaply import cleanup
+    if not _can_configure():
+        return jsonify({"error": "Storage can only be managed on the PC that runs Clipforge."}), 403
+    if request.method == "POST":
+        try:
+            cleanup.set_days((request.get_json(force=True, silent=True) or {}).get("days", 0))
+        except (TypeError, ValueError) as e:
+            return jsonify({"error": str(e) if isinstance(e, ValueError) else "days must be a number."}), 400
+    days = cleanup.get_days()
+    try:
+        ask = int(request.args.get("days", days or 30))
+    except ValueError:
+        ask = 30
+    return jsonify({"days": days, "choices": list(cleanup.CHOICES), "usage": cleanup.usage(),
+                    "preview": {"days": ask, **cleanup.preview(None, ask, everyone=True)} if ask > 0 else None})
+
+
+@bp.route("/api/studio/storage/clean", methods=["POST"])
+def storage_clean():
+    """Delete finished projects older than {"days"} (and caches nothing uses) right now."""
+    from recaply import cleanup
+    if not _can_configure():
+        return jsonify({"error": "Storage can only be managed on the PC that runs Clipforge."}), 403
+    try:
+        days = int((request.get_json(force=True, silent=True) or {}).get("days", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "days must be a number."}), 400
+    if days < 0:
+        return jsonify({"error": "days can't be negative."}), 400
+    freed = cleanup.clean(None, days, everyone=True)
+    return jsonify({"ok": True, "freed": freed, "usage": cleanup.usage()})
+
 
 @bp.route("/api/studio/settings/test", methods=["POST"])
 def user_settings_test():
