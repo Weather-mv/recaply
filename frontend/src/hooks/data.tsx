@@ -74,11 +74,53 @@ export const useBoot = () => useContext(BootCtx);
 
 export { isActive } from "@/lib/status";
 
+const FULL_EVERY = 15000;
+
+/** Refresh `prev` cheaply: while some rows are busy, fetch only those (`?ids=`) and merge them in;
+ *  the whole list is fetched when nothing is busy, at the start, and every FULL_EVERY ms. */
+export async function pollList<T extends { id: string }>(
+  url: string, key: string, prev: T[] | null, busy: (row: T) => boolean, lastFull: number, signal?: AbortSignal,
+): Promise<{ rows: T[]; full: boolean }> {
+  const ids = prev?.filter(busy).map((r) => r.id) ?? [];
+  if (prev && ids.length && Date.now() - lastFull < FULL_EVERY) {
+    const fresh = (await api<Record<string, T[]>>(`${url}?ids=${ids.map(encodeURIComponent).join(",")}`, { signal }))[key];
+    const byId = new Map(fresh.map((r) => [r.id, r]));
+    return { rows: prev.map((r) => byId.get(r.id) ?? r), full: false };
+  }
+  return { rows: (await api<Record<string, T[]>>(url, { signal }))[key], full: true };
+}
+
+/** One list for every useProjects() on the page (the sidebar and the page both show it): calls within
+ *  a second share one request. */
+const projectList: { rows: Project[] | null; full: number; inflight: Promise<Project[]> | null; at: number } = {
+  rows: null, full: 0, inflight: null, at: 0,
+};
+
+function loadProjects(): Promise<Project[]> {
+  if (projectList.inflight && Date.now() - projectList.at < 1000) return projectList.inflight;
+  projectList.at = Date.now();
+  projectList.inflight = pollList<Project>("/api/studio/projects", "projects", projectList.rows, isActive, projectList.full)
+    .then((r) => {
+      projectList.rows = r.rows;
+      if (r.full) projectList.full = Date.now();
+      return r.rows;
+    })
+    .catch((e) => {
+      projectList.inflight = null;
+      throw e;
+    });
+  return projectList.inflight;
+}
+
 export function useProjects() {
-  return usePolling<Project[]>(
-    async (signal) => (await api<{ projects: Project[] }>("/api/studio/projects", { signal })).projects,
-    (d) => (d?.some(isActive) ? 2000 : 15000),
-  );
+  const poll = usePolling<Project[]>(() => loadProjects(), (d) => (d?.some(isActive) ? 2000 : FULL_EVERY));
+  const { refresh } = poll;
+  const full = useCallback(() => {
+    projectList.full = 0;              // a refresh the page asks for (new or deleted project) reloads everything
+    projectList.inflight = null;
+    return refresh();
+  }, [refresh]);
+  return { ...poll, refresh: full };
 }
 
 /** Live channels and their feed, refreshed every few seconds (404 = live mode isn't offered on this server). */

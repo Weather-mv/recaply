@@ -110,7 +110,7 @@ def _project(job: dict) -> dict:
         "error": job.get("error"),
         "profile": {"key": prof.get("key"), "label": prof.get("label"), "reason": prof.get("reason")} if prof else None,
         "clips": len(clips), "best": max((c.get("score") or 0 for c in clips), default=None) if clips else None,
-        "beats": sum(len(c.get("beats") or []) for c in clips),
+        "beats": sum(c["beats_n"] if "beats_n" in c else len(c.get("beats") or []) for c in clips),
         "duration": (result.get("source") or {}).get("duration"),
         "thumb": (result.get("source") or {}).get("video_id"),
         "extractor": (result.get("source") or {}).get("extractor"),
@@ -120,12 +120,11 @@ def _project(job: dict) -> dict:
 
 @bp.route("/api/studio/projects")
 def projects():
-    rows = []
-    for j in store.list_jobs(owner=auth.uid(), limit=40):
-        full = store.get(j["id"])        # list_jobs omits the (big) result column
-        if full:
-            rows.append(_project(full))
-    return jsonify({"projects": rows})
+    """The dashboard list, from the light columns only. `?ids=a,b` returns just those (the page polls
+    its running jobs that way and reloads the whole list rarely)."""
+    ids = request.args.get("ids")
+    want = [i for i in ids.split(",") if i][:40] if ids is not None else None
+    return jsonify({"projects": [_project(j) for j in store.list_light(owner=auth.uid(), limit=40, ids=want)]})
 
 
 @bp.route("/api/studio/projects", methods=["POST"])
@@ -142,14 +141,16 @@ def create_project():
         if not allowed_url(text):
             return jsonify({"error": "Only YouTube, Twitch and Kick links are supported."}), 400
         import live_routes
-        if live_routes.available() and live_routes.is_live_link(text):
+        from recaply.live import links
+        # the Live page also accepts watch?v= / youtu.be links to a stream: one cached lookup decides
+        status = links.video_status(text) if body.get("live_only") and links.is_video_link(text) else None
+        if live_routes.available() and (status in ("live", "upcoming") or live_routes.is_live_link(text)):
             try:
                 live_routes.watch_link(text, opts.get("profile") or "gaming")
             except Exception as e:  # noqa: BLE001 — shown to the user as is
                 return jsonify({"error": f"Couldn't start live clipping: {e}"}), 400
             return jsonify({"live": True, "redirect": "/studio/live"})
-        from recaply.live import links
-        if body.get("live_only") and links.is_video_link(text) and links.video_status(text) == "ended":
+        if body.get("live_only") and status == "ended":
             # the Live page, with a broadcast that has already ended: it's a video now, so clip it as one
             jid = clip_routes._start(text, opts, title="")
             return jsonify({"id": jid, "ended": True, "message": "That stream has ended, so Clipforge is clipping it as a video."})
@@ -183,6 +184,7 @@ def user_settings_api():
         problems = user_settings.update(settings, body.get("set") or {})
     return jsonify({"settings": user_settings.status(), "problems": problems, "ai": ai_status(),
                     "providers": ["groq", "gemini", "anthropic", "openai", "ollama"]})
+
 
 
 @bp.route("/api/studio/settings/test", methods=["POST"])

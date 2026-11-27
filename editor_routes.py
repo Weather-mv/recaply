@@ -95,15 +95,17 @@ def editor_open():
 
 @bp.route("/api/editor/library")
 def editor_library():
-    """Projects with their clips (title, length, score and which exports exist), newest first."""
+    """Projects with their clips (title, length, score and which exports exist), newest first.
+    Reads the light columns only; `?ids=a,b` returns just those jobs (polling the busy ones)."""
+    ids = request.args.get("ids")
+    want = [i for i in ids.split(",") if i][:60] if ids is not None else None
     out = []
-    for row in store.list_jobs(owner=auth.uid(), limit=60):
-        job = store.get(row["id"])
-        if not job or job["state"] in ("failed", "cancelled"):
+    for job in store.list_light(owner=auth.uid(), limit=60, ids=want):
+        if job["state"] in ("failed", "cancelled"):
             continue
         result = job.get("result") or {}
         cuts = job.get("cuts") or {}
-        clips = [{"id": c["id"], "title": c.get("title") or f"Moment at {c.get('time', '')}", "start": c.get("start", 0),
+        clips = [{"id": c["id"], "title": c.get("title") or f"Moment at {c.get('time') or ''}", "start": c.get("start", 0),
                   "duration": c.get("duration", 0), "score": c.get("score"),
                   "exported": (cuts.get(f"s{c['id']}") or {}).get("state") == "done"}
                  for c in sorted(result.get("clips") or [], key=lambda c: c["id"])]

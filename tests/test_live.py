@@ -378,10 +378,28 @@ def test_a_broadcast_that_has_ended_is_not_recorded(monkeypatch):
     monkeypatch.setattr(links, "video_status", status.get)
     assert not lr.is_live_link("https://www.youtube.com/live/OIeLbmyraRQ")          # was live: a video now
     assert lr.is_live_link("https://www.youtube.com/live/QjbepgVChIA")
-    assert lr.is_live_link("https://www.youtube.com/watch?v=soonsoonsoo")           # scheduled: wait for it
+    assert not lr.is_live_link("https://www.youtube.com/watch?v=soonsoonsoo")       # watch links: clipped as videos, no lookup
     assert not lr.is_live_link("https://youtu.be/dQw4w9WgXcQ")
     assert lr.is_live_link("https://www.youtube.com/@VALORANT/live")                # channels: no lookup needed
     assert links.ended("https://www.youtube.com/live/OIeLbmyraRQ") and not links.ended("https://www.twitch.tv/somebody")
+
+
+def test_live_checks_are_cached_per_video(monkeypatch):
+    from recaply.live import links
+    calls = []
+    monkeypatch.setattr(links, "_lookup", lambda url: calls.append(url) or "ended")
+    links.forget()
+    assert links.video_status("https://www.youtube.com/live/OIeLbmyraRQ") == "ended"
+    assert links.video_status("https://youtu.be/OIeLbmyraRQ") == "ended"            # same video, other link shape
+    assert links.ended("https://www.youtube.com/watch?v=OIeLbmyraRQ&t=10")
+    assert len(calls) == 1
+    monkeypatch.setattr(links, "_lookup", lambda url: calls.append(url) or None)    # unknown answers aren't kept
+    links.video_status("https://youtu.be/abcdefghijk")
+    links.video_status("https://youtu.be/abcdefghijk")
+    assert len(calls) == 3
+    calls.clear()
+    assert not links.should_watch("https://www.youtube.com/watch?v=zzzzzzzzzzz") and calls == []
+    links.forget()
 
 
 def test_a_saved_channel_for_an_ended_broadcast_stops_instead_of_waiting(monkeypatch, tmp_path):

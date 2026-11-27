@@ -6,7 +6,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { api, ApiError, thumbUrl } from "@/lib/api";
+import { pollList } from "@/hooks/data";
+import { ApiError, thumbUrl } from "@/lib/api";
 import type { LibraryClip, LibraryItem } from "@/lib/types";
 import { ago, cn, fmtTime } from "@/lib/utils";
 
@@ -16,35 +17,40 @@ const VIDEO_EXT = /\.(mp4|mov|mkv|webm|m4v|avi|flv|ts|mpg|mpeg|wmv)$/i;
 
 type Pick = { job: string; clip: number };
 
+const isBusy = (i: LibraryItem) => i.state === "queued" || i.state === "running";
+
 function useLibrary() {
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [error, setError] = useState("");
-  const load = useCallback(async () => {
+  const last = useRef<{ rows: LibraryItem[] | null; full: number }>({ rows: null, full: 0 });
+  const fetchList = useCallback(async (forceFull: boolean) => {
     try {
-      const r = await api<{ items: LibraryItem[] }>("/api/editor/library");
-      setItems(r.items);
+      if (forceFull) last.current.full = 0;
+      const r = await pollList<LibraryItem>("/api/editor/library", "items", last.current.rows, isBusy, last.current.full);
+      last.current = { rows: r.rows, full: r.full ? Date.now() : last.current.full };
+      setItems(r.rows);
       setError("");
-      return r.items;
+      return r.rows;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't load your clips.");
       return null;
     }
   }, []);
+  const load = useCallback(() => fetchList(true), [fetchList]);
   useEffect(() => {
     let stop = false;
     let timer = 0;
     const tick = async () => {
-      const got = await load();
+      const got = await fetchList(false);
       if (stop) return;
-      const busy = got?.some((i) => i.state === "queued" || i.state === "running");
-      timer = window.setTimeout(tick, busy ? 2500 : 15000);
+      timer = window.setTimeout(tick, got?.some(isBusy) ? 2500 : 15000);
     };
     void tick();
     return () => {
       stop = true;
       window.clearTimeout(timer);
     };
-  }, [load]);
+  }, [fetchList]);
   return { items, error, reload: load };
 }
 
