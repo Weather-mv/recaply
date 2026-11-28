@@ -15,7 +15,7 @@ import json
 import os
 import shutil
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Callable
 
 import editor
@@ -27,14 +27,23 @@ from recaply.render.presets import export_preset, length_note, ratio
 @dataclass
 class ShortOptions:
     export: str = "shorts"            # recaply.render.presets.EXPORTS key
-    layout: str = "auto"              # auto | face | split | action | center | fit
+    layout: str = "auto"              # a reframe.STRATEGIES key
+    split_ratio: float = 0.42         # the cam pane's share of the height (split layouts); its size in "pip"
+    cam_box: list | None = None       # the facecam box drawn by hand, [x, y, w, h] fractions; None = detect it
     captions: str = "bold"            # a subtitles.PRESETS key, or "none"
     hook: bool = True
+    context: bool = True              # a clip that starts mid-action gets its stakes on screen for the first second
+    context_text: str = ""            # the stakes line as edited in the studio ("" = the one the hook check wrote)
     emoji: bool = False
     tighten: bool = False             # remove fillers and long pauses
     use_brand: bool = True
     broll: bool = False               # lay stock cut-aways over the clip (Phase 5)
     translate: str = ""               # translate the captions to this language code ("" = no)
+    teaser: bool = False              # a 3 s cinematic cold open in front of the short (the studio turns it on)
+    bgm: str = ""                     # "" none | "auto" | a file name in assets/bgm
+    bgm_level: float = 0.32           # music level before ducking under speech
+    caption_edits: list = field(default_factory=list)
+    caption_style: dict = field(default_factory=dict)  # the Captions panel's overrides (subtitles.clean_style)  # [{"t": source seconds of the word's start, "w": new text}]
 
     @classmethod
     def from_dict(cls, raw: dict | None) -> "ShortOptions":
@@ -45,23 +54,137 @@ class ShortOptions:
             o.export = raw["export"]
         if raw.get("layout") in reframe.STRATEGIES:
             o.layout = raw["layout"]
+        try:
+            o.split_ratio = min(0.6, max(0.25, float(raw.get("split_ratio", o.split_ratio))))
+        except (TypeError, ValueError):
+            pass
+        o.context_text = " ".join(str(raw.get("context_text") or "").split())[:40]
+        cam = reframe.manual_cam(raw.get("cam_box")) if raw.get("cam_box") else None
+        o.cam_box = cam["cam"] if cam else None
         if raw.get("captions") in (*subtitles.PRESETS, "none", "brand"):
             o.captions = raw["captions"]
-        for k in ("hook", "emoji", "tighten", "use_brand", "broll"):
+        for k in ("hook", "context", "emoji", "tighten", "use_brand", "broll", "teaser"):
             if k in raw:
                 setattr(o, k, bool(raw[k]))
+        from recaply.render import bgm as bgm_mod
+        choice = str(raw.get("bgm") or "").strip()
+        if choice.lower() in ("auto", "none", "") or choice in {t["name"] for t in bgm_mod.tracks()}:
+            o.bgm = "" if choice.lower() == "none" else choice
+        try:
+            o.bgm_level = min(0.8, max(0.05, float(raw.get("bgm_level", o.bgm_level))))
+        except (TypeError, ValueError):
+            pass
         from recaply.edit.translate import LANGUAGES
         if raw.get("translate") in LANGUAGES:
             o.translate = raw["translate"]
+        o.caption_edits = clean_caption_edits(raw.get("caption_edits"))
+        o.caption_style = subtitles.clean_style(raw.get("caption_style"))
         return o
+
+
+MAX_CAPTION_EDITS = 3000
+CAPTION_WORD_MAX = 40
+EDIT_MATCH_SEC = 0.06
+
+
+def clean_caption_edits(raw) -> list[dict]:
+    """The caption edits sent by the studio, checked: [{"t": seconds >= 0, "w": text (may be "" to hide the word)}]."""
+    out: list[dict] = []
+    if not isinstance(raw, list):
+        return out
+    for e in raw[:MAX_CAPTION_EDITS]:
+        if not isinstance(e, dict):
+            continue
+        try:
+            t = float(e.get("t"))
+        except (TypeError, ValueError):
+            continue
+        if not (t >= 0 and t < 1e7):
+            continue
+        out.append({"t": round(t, 3), "w": " ".join(str(e.get("w") or "").split())[:CAPTION_WORD_MAX]})
+    return out
+
+
+def apply_caption_edits(words: list[dict], edits: list[dict], clip_start: float) -> list[dict]:
+    """
+    Put the studio's caption text in place of the transcribed words. A word is found by where it starts in
+    the source video (its "o" when an edit retimed it, else clip start + its clip time); an empty text hides
+    the word from the captions. Timing never changes.
+    """
+    if not edits:
+        return words
+    times = sorted((e["t"], e["w"]) for e in edits)
+    keys = [t for t, _ in times]
+    import bisect
+    out = []
+    for w in words:
+        o = float(w.get("o", clip_start + w["s"]))
+        k = bisect.bisect_left(keys, o - EDIT_MATCH_SEC)
+        hit = None
+        while k < len(keys) and keys[k] <= o + EDIT_MATCH_SEC:
+            if hit is None or abs(keys[k] - o) < abs(hit[0] - o):
+                hit = times[k]
+            k += 1
+        if hit is None:
+            out.append(w)
+        elif hit[1]:
+            out.append({**w, "w": hit[1]})
+    return out
+
+
+def _caption_font(style: dict, assets: str) -> str | None:
+    """The font picked in the Captions panel, copied into the edit's assets; None = the brand / default font."""
+    key = (style or {}).get("font")
+    if not key:
+        return None
+    from recaply.render.brand import choice_path
+    path = choice_path(key)
+    if not path:
+        return None
+    import uuid
+    name = uuid.uuid4().hex[:12] + os.path.splitext(path)[1].lower()
+    shutil.copyfile(path, os.path.join(assets, name))
+    return name
+
+
+def teaser_seconds() -> float:
+    from recaply.render.teaser import TEASER_SEC
+    return TEASER_SEC
+
+
+def _add_teaser(source: str, body: str, doc: dict, video_only: list, meta: dict, assets: str, edit_dir: str,
+                clip: dict, accent: str = "#0865ff", font: str | None = None) -> str:
+    """Put the 3 s cinematic teaser in front of `body`. Returns the new file (body is replaced by it)."""
+    import subprocess
+
+    from recaply.render import teaser
+    t = teaser.pick_time(source, meta["duration"])
+    # the still is the reframed picture (same crop as the short) at that moment, without captions or hook text
+    still_doc = dict(doc, trim=[t, min(meta["duration"], t + 0.25)], speed=1, fade_in=0, fade_out=0,
+                     layers=[L for L in doc["layers"] if L["type"] == "video"] or video_only)
+    still_mp4 = os.path.join(edit_dir, "teaser_still.mp4")
+    editor.render(source, still_mp4, still_doc, meta, assets)
+    still = os.path.join(edit_dir, "teaser_still.png")
+    subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", still_mp4, "-frames:v", "1", still],
+                   check=True, capture_output=True)
+    ow, oh = editor.output_size(doc)
+    text = clip.get("hook") or clip.get("title") or ""
+    overlay = teaser.overlay_png(os.path.join(edit_dir, "teaser_overlay.png"), ow, oh, text, accent, font, assets)
+    info = editor.probe(body)
+    out = body + ".teaser.mp4"
+    teaser.build(still, overlay, source, t, body, out, ow, oh, info["fps"], has_audio=bool(meta["audio"]),
+                 body_has_audio=bool(info["audio"]))
+    os.replace(out, body)
+    return body
 
 
 def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: ShortOptions,
                  profile_reframe: str = "center", keywords: tuple[str, ...] = (), owner=None,
                  watermark: bool = False, progress: Callable[[float, str], None] | None = None,
-                 telemetry=None) -> dict:
+                 telemetry=None, tag: str = "") -> dict:
     """
     Render one short from `src` (the cut clip) with clip-relative `words`.
+    `tag` prefixes the file and work-folder names (previews use "preview_", so they never touch the real short).
     Returns {"file", "edit_dir", "layout", "reason", "removed_sec", "duration", "encoder", "sec", "notes"}.
     """
     t_start = time.time()
@@ -70,15 +193,19 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
     fmt = preset["format"]
     W, H = editor.canvas_size(fmt)
     cid = clip["id"]
-    name = f"short_{cid:02d}_{fmt.replace(':', 'x')}.mp4"
-    edit_dir = os.path.join(out_dir, "_edit", f"{cid}-{fmt.replace(':', 'x')}")
+    name = f"{tag}short_{cid:02d}_{fmt.replace(':', 'x')}.mp4"
+    edit_dir = os.path.join(out_dir, "_edit", f"{tag}{cid}-{fmt.replace(':', 'x')}")
     shutil.rmtree(edit_dir, ignore_errors=True)
     assets = os.path.join(edit_dir, "assets")
     os.makedirs(assets, exist_ok=True)
     notes: list[str] = []
+    cap_layer = None
 
     kit = brandkit.load(owner) if opts.use_brand else brandkit.BrandKit()
     staged = brandkit.stage_assets(owner, kit, assets) if opts.use_brand else {}
+
+    # 0. caption text typed in the studio
+    words = apply_caption_edits(words, opts.caption_edits, float(clip.get("start") or 0.0))
 
     # 1. tighten
     meta = editor.probe(src)
@@ -86,7 +213,9 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
     removed = 0.0
     if opts.tighten and words:
         report(0.02, "Removing pauses and filler words")
-        segs, words = tighten.keep_segments(words, meta["duration"])
+        # gaming: long stretches without talking are the gameplay itself, so only fillers and short pauses go
+        gaming = profile_reframe in (*reframe.CAM_LAYOUTS, "action")
+        segs, words = tighten.keep_segments(words, meta["duration"], content_gap=2.5 if gaming else None)
         removed = tighten.removed_seconds(segs, meta["duration"])
         if removed >= 0.3:
             tighten.apply(src, source, segs, has_audio=bool(meta["audio"]))
@@ -98,8 +227,8 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
 
     # 2. reframe
     report(0.1, "Finding faces and action")
-    preferred = opts.layout if opts.layout != "auto" else profile_reframe
-    plan = reframe.choose(source, meta, preferred, ratio(fmt))
+    plan = reframe.choose(source, meta, opts.layout, ratio(fmt), fallback=profile_reframe,
+                          cam_box=opts.cam_box, split_ratio=opts.split_ratio)
 
     # 2b. B-roll (on the tightened source, after the layout was chosen from the real picture)
     broll_used: list = []
@@ -130,17 +259,29 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
 
     # 3. document
     layers = reframe.video_layers(plan, meta, W, H)
+    video_only = list(layers)                       # the teaser's still is the reframed picture without text
     style = kit.caption_style if opts.captions == "brand" else opts.captions
     if style != "none":
         cap = subtitles.captions_layer(words, style, fmt, plan.strategy, W, H, keywords=keywords,
                                        emphasis=tuple(clip.get("emphasis") or ()), emoji=opts.emoji,
-                                       colors=kit.colors() if opts.use_brand else None, font=staged.get("font"))
+                                       colors=kit.colors() if opts.use_brand else None,
+                                       font=_caption_font(opts.caption_style, assets) or staged.get("font"),
+                                       seam=opts.split_ratio, style=opts.caption_style)
         if cap:
             layers.append(cap)
+            cap_layer = cap
         elif not words:
             notes.append("no speech found, so no captions")
+    # the stakes first (a clip that starts mid-action), then the hook text right after it
+    ctx = None
+    stakes = opts.context_text or clip.get("context") or ""
+    if opts.context and stakes:
+        ctx = subtitles.context_layer(stakes, fmt, W, H, font=staged.get("font"))
+    if ctx:
+        layers.append(ctx)
     if opts.hook and clip.get("hook"):
-        hk = subtitles.hook_layer(clip["hook"], fmt, W, H, accent=kit.accent, font=staged.get("font"))
+        hk = subtitles.hook_layer(clip["hook"], fmt, W, H, accent=kit.accent, font=staged.get("font"),
+                                  start=subtitles.CONTEXT_SEC if ctx else 0.0)
         if hk:
             layers.append(hk)
     if staged.get("logo"):
@@ -159,12 +300,44 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
     enc = editor.render(source, body, doc, meta, assets,
                         progress=lambda f, s=None: report(0.15 + 0.8 * f, s or "Rendering"),
                         watermark=watermark)
+    # 5. teaser in front, music under everything
+    teaser_used, bgm_used = False, None
+    if opts.teaser:
+        report(0.95, "Adding the cinematic teaser")
+        try:
+            body = _add_teaser(source, body, doc, video_only, meta, assets, edit_dir, clip, accent=kit.accent,
+                               font=staged.get("font"))
+            teaser_used = True
+        except Exception as e:  # noqa: BLE001 — the short is still made, without the teaser
+            notes.append(f"teaser skipped: {str(e)[:140]}")
+    if opts.bgm:
+        from recaply.render import bgm as bgm_mod
+        track = bgm_mod.pick(opts.bgm, cid)
+        if track is None:
+            notes.append("no music added: put music files in assets/bgm")
+        else:
+            report(0.97, "Mixing the music")
+            try:
+                bgm_mod.mix(body, body + ".music.mp4", track, opts.bgm_level, has_audio=bool(editor.probe(body)["audio"]))
+                os.replace(body + ".music.mp4", body)
+                bgm_used = os.path.basename(track)
+            except Exception as e:  # noqa: BLE001
+                notes.append(f"music skipped: {str(e)[:140]}")
     if opts.use_brand and (kit.intro or kit.outro):
-        report(0.96, "Adding intro and outro")
+        report(0.98, "Adding intro and outro")
         if brandkit.add_intro_outro(owner, kit, body, dst, *editor.output_size(doc), fps=meta["fps"]):
             os.remove(body)
     if os.path.exists(body):
         os.replace(body, dst)
+    ass_name = None
+    if cap_layer:                                   # the same karaoke captions as a subtitle file for other editors
+        try:
+            from recaply.render import ass
+            ass_name = name[:-4] + ".ass"
+            ass.write(cap_layer, os.path.join(out_dir, ass_name), W, H, offset=teaser_seconds() if teaser_used else 0.0)
+        except Exception as e:  # noqa: BLE001
+            ass_name = None
+            notes.append(f".ass file skipped: {str(e)[:100]}")
     from recaply.ingest.audio import media_duration
     dur = media_duration(dst)
     note = length_note(preset, dur)
@@ -174,4 +347,4 @@ def render_short(clip: dict, src: str, words: list[dict], out_dir: str, opts: Sh
     return {"file": name, "edit_dir": os.path.relpath(edit_dir, out_dir).replace("\\", "/"),
             "layout": plan.strategy, "reason": plan.reason, "removed_sec": removed, "duration": round(dur, 2),
             "encoder": enc, "sec": round(time.time() - t_start, 1), "notes": notes, "format": fmt,
-            "export": preset["key"], "broll": broll_used}
+            "export": preset["key"], "broll": broll_used, "ass": ass_name, "teaser": teaser_used, "music": bgm_used}

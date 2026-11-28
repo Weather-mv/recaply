@@ -31,7 +31,7 @@ MAX_INSERTS = 3
 INSERT_SEC = 3.0
 MIN_GAP = 6.0
 MAX_VIDEO_MB, MAX_IMAGE_MB = 40, 12
-UA = "Recaply/1.0 (b-roll fetch)"
+UA = "Clipforge/1.0 (b-roll fetch)"
 STOP = set("""about above after again against because before being below between both could does doing down during each
 few from further have having here herself himself into itself just more most myself once only other ought ours over own
 same should some such than that their theirs them themselves then there these they this those through under until very

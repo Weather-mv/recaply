@@ -6,6 +6,8 @@ import os
 import socket
 import socketserver
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 
@@ -68,10 +70,28 @@ def ts_stream_cmd(duration=100, burst=(60, 64), size="320x180"):
             "-c:a", "aac", "-f", "mpegts", "pipe:1"]
 
 
+ONCE = """
+import os, subprocess, sys
+flag, cmd = sys.argv[1], sys.argv[2:]
+if os.path.exists(flag):
+    sys.exit(1)                  # a real stream that has ended is not there to reconnect to
+open(flag, "w").close()
+sys.exit(subprocess.call(cmd))
+"""
+
+
+def once(cmd):
+    """Run the synthetic feed a single time: a second attempt (the channel reconnects after a drop) finds nothing,
+    like a stream that has really ended, instead of replaying the same recording."""
+    return [sys.executable, "-c", ONCE, tempfile.mktemp(prefix="feed_"), *cmd]
+
+
 def make_cfg(**kw):
     d = {"name": "test", "url": "x", "source_cmd": ts_stream_cmd(), "segment_sec": 30, "warmup": 30, "cooldown": 10,
          "pre": 10, "post": 5, "end_grace": 10, "chat": False, "profile": "gaming"}
     d.update(kw)
+    if d["source_cmd"] and d["source_cmd"][0] == "ffmpeg":
+        d["source_cmd"] = once(d["source_cmd"])
     return config.validate(d)
 
 
@@ -279,6 +299,29 @@ def test_buffer_lengths_cut_pcm_and_prune(tmp_path):
         Buffer(str(tmp_path / "empty")).cut(0, 5, str(tmp_path / "x.mp4"))
 
 
+def _tone(path, start, dur=1.0):
+    """The loudest frequency (Hz) of [start, start+dur) of a file."""
+    from recaply.ingest.audio import decode_pcm
+    x = decode_pcm(path, start, dur, RATE)
+    spec = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+    return float(np.argmax(spec) * RATE / len(x))
+
+
+def test_cut_jumps_into_a_long_segment_and_lands_on_time(tmp_path):
+    folder = str(tmp_path / "buf")
+    make_segments(folder, n=2, seconds=30)          # 300 Hz for 0-30, 600 Hz for 30-60
+    b = Buffer(folder)
+    b.finished = True
+    b.refresh()
+    assert all(s.pts0 > 0 for s in b._segs)         # the segment's own first timestamp is known
+    out = b.cut(22, 38, str(tmp_path / "c.mp4"))     # starts 22 s into the first segment: a keyframe jump
+    d = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+                             capture_output=True, text=True).stdout)
+    assert 15.5 < d < 16.5
+    assert abs(_tone(out, 0.5) - 300) < 30 and abs(_tone(out, 6.5) - 300) < 30     # 22..30 s: the first tone
+    assert abs(_tone(out, 8.6) - 600) < 30 and abs(_tone(out, 14.5) - 600) < 30    # 30..38 s: the second
+
+
 # ---------- the channel loop ----------
 
 def run_worker(cfg, submit, tmp_path, timeout=120):
@@ -302,10 +345,70 @@ def test_channel_catches_a_moment_cuts_it_and_stops_when_the_stream_ends(tmp_pat
     assert not os.path.exists(w.buffer_dir)                                              # buffer cleaned up at the end
 
 
+def test_a_frozen_connection_is_dropped_and_reconnected(tmp_path, monkeypatch):
+    from recaply.live import channel as ch
+    monkeypatch.setattr(ch, "STALL_SEC", 4.0)
+    # 20 s at a real stream's bitrate (a tiny feed would sit in ffmpeg's start-up probe), then the link freezes
+    feed = ["ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=30:d=20",
+            "-f", "lavfi", "-i", "sine=f=440:d=20", "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "6M",
+            "-c:a", "aac", "-f", "mpegts", "pipe:1"]
+    hang =[sys.executable, "-c", "import subprocess, sys, time; subprocess.call(sys.argv[1:]); time.sleep(600)", *feed]
+    cfg = make_cfg(name="frozen", source_cmd=hang, end_grace=600)
+    w = ChannelWorker(cfg, root=str(tmp_path / "live"), submit=lambda *a: "x", tick=1)
+    w.start()
+    end = time.time() + 60
+    while time.time() < end and not (w.stalls and w.reconnects):
+        time.sleep(0.5)
+    w.stop()
+    w.join(30)
+    assert w.stalls >= 1 and w.reconnects >= 1 and not w.is_alive()
+
+
 def test_channel_that_is_not_live_ends_when_waiting_is_off(tmp_path):
     cfg = make_cfg(name="offline", source_cmd=["python3", "-c", "import sys; sys.exit(1)"], wait_live=False)
     w = run_worker(cfg, lambda *a: "x", tmp_path, 60)
     assert w.state == "ended" and "isn't live" in w.note and w.clips == []
+
+
+def test_a_broadcast_that_has_ended_is_not_recorded(monkeypatch):
+    from recaply.live import links
+    import live_routes as lr
+    status = {"https://www.youtube.com/live/OIeLbmyraRQ": "ended", "https://www.youtube.com/live/QjbepgVChIA": "live",
+              "https://www.youtube.com/watch?v=soonsoonsoo": "upcoming", "https://youtu.be/dQw4w9WgXcQ": "video"}
+    monkeypatch.setattr(links, "video_status", status.get)
+    assert not lr.is_live_link("https://www.youtube.com/live/OIeLbmyraRQ")          # was live: a video now
+    assert lr.is_live_link("https://www.youtube.com/live/QjbepgVChIA")
+    assert not lr.is_live_link("https://www.youtube.com/watch?v=soonsoonsoo")       # watch links: clipped as videos, no lookup
+    assert not lr.is_live_link("https://youtu.be/dQw4w9WgXcQ")
+    assert lr.is_live_link("https://www.youtube.com/@VALORANT/live")                # channels: no lookup needed
+    assert links.ended("https://www.youtube.com/live/OIeLbmyraRQ") and not links.ended("https://www.twitch.tv/somebody")
+
+
+def test_live_checks_are_cached_per_video(monkeypatch):
+    from recaply.live import links
+    calls = []
+    monkeypatch.setattr(links, "_lookup", lambda url: calls.append(url) or "ended")
+    links.forget()
+    assert links.video_status("https://www.youtube.com/live/OIeLbmyraRQ") == "ended"
+    assert links.video_status("https://youtu.be/OIeLbmyraRQ") == "ended"            # same video, other link shape
+    assert links.ended("https://www.youtube.com/watch?v=OIeLbmyraRQ&t=10")
+    assert len(calls) == 1
+    monkeypatch.setattr(links, "_lookup", lambda url: calls.append(url) or None)    # unknown answers aren't kept
+    links.video_status("https://youtu.be/abcdefghijk")
+    links.video_status("https://youtu.be/abcdefghijk")
+    assert len(calls) == 3
+    calls.clear()
+    assert not links.should_watch("https://www.youtube.com/watch?v=zzzzzzzzzzz") and calls == []
+    links.forget()
+
+
+def test_a_saved_channel_for_an_ended_broadcast_stops_instead_of_waiting(monkeypatch, tmp_path):
+    from recaply.live import links
+    monkeypatch.setattr(links, "video_status", lambda url: "ended")
+    cfg = make_cfg(name="oldstream", url="https://www.youtube.com/live/OIeLbmyraRQ",
+                   source_cmd=["python3", "-c", "import sys; sys.exit(1)"], poll_sec=60)
+    w = run_worker(cfg, lambda *a: "x", tmp_path, 15)
+    assert w.state == "ended" and "has ended" in w.note and w.clips == []
 
 
 def test_waiting_channel_can_be_stopped(tmp_path):
@@ -412,8 +515,6 @@ def test_live_routes(monkeypatch):
     app.jinja_env.globals.update(csrf_token=lambda: "t", user=None, ent=None, plans={})
     app.register_blueprint(live_routes.bp)
     c = app.test_client()
-    page = c.get("/live")
-    assert page.status_code == 200 and b"Clip streams while they happen" in page.data
     r = c.post("/api/live/channels", json={"name": "rt", "url": "https://www.twitch.tv/foo", "discord": "https://discord.com/api/webhooks/1/2", "start": True})
     assert r.status_code == 200 and mgr.started == ["rt"] and r.get_json()["channel"]["discord"] is True
     r = c.post("/api/live/channels", json={"name": "rt", "url": "https://www.twitch.tv/foo", "pre": 20})   # blank webhook keeps the saved one
@@ -447,7 +548,9 @@ def _live_client(monkeypatch, uid=1):
 
 
 def test_live_links_are_recognised_and_watched(monkeypatch):
+    from recaply.live import links
     lr, mgr, c = _live_client(monkeypatch)
+    monkeypatch.setattr(links, "video_status", lambda url: "live")
     for u in ("https://www.youtube.com/live/QjbepgVChIA", "https://youtube.com/@VALORANT/live",
               "https://www.twitch.tv/somechannel", "https://kick.com/some-channel"):
         assert lr.is_live_link(u), u

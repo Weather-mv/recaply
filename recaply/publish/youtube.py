@@ -133,7 +133,7 @@ class YouTubePublisher(Publisher):
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 if q.get("state", [""])[0] == state and ("code" in q or "error" in q):
                     got.update({k: v[0] for k, v in q.items()})
-                    msg = "Recaply is connected to YouTube. You can close this tab." if "code" in q else "Sign-in was cancelled."
+                    msg = "Clipforge is connected to YouTube. You can close this tab." if "code" in q else "Sign-in was cancelled."
                     self.send_response(200)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
                     self.end_headers()
@@ -164,11 +164,17 @@ class YouTubePublisher(Publisher):
         tok = _form(self.token_url, {"code": got["code"], "client_id": self.client_id, "client_secret": self.client_secret,
                                      "redirect_uri": redirect, "grant_type": "authorization_code", "code_verifier": verifier})
         if not tok.get("refresh_token"):
-            raise PublishError("Google didn't return a refresh token. Remove Recaply's access in your Google account and try again.")
+            raise PublishError("Google didn't return a refresh token. Remove Clipforge's access in your Google account and try again.")
         _write_tokens({"refresh_token": tok["refresh_token"], "access_token": tok.get("access_token"),
                        "expires": time.time() + float(tok.get("expires_in", 3000)) - 60})
 
     def _access_token(self, force: bool = False) -> str:
+        if getattr(self, "_acct", None):
+            from recaply.social.accounts import NeedsReconnect, access_token
+            try:
+                return access_token(self._acct, force=force)
+            except NeedsReconnect as e:
+                raise PublishError(str(e)) from None
         t = _read_tokens()
         if not t.get("refresh_token"):
             raise PublishError("YouTube isn't connected: python -m recaply publish auth youtube")
@@ -209,7 +215,11 @@ class YouTubePublisher(Publisher):
             raise PublishError(f"network error: {getattr(e, 'reason', e)}", retryable=True) from None
 
     def publish(self, post: Post, progress=None) -> Result:
-        if not self.status()["connected"]:
+        self._acct = post.account_id
+        if self._acct:
+            if not (self.client_id and self.client_secret):
+                raise PublishError("YouTube isn't set up: add RECAPLY_YT_CLIENT_ID and RECAPLY_YT_CLIENT_SECRET.")
+        elif not self.status()["connected"]:
             raise PublishError(self.status()["note"])
         if not os.path.isfile(post.file):
             raise PublishError("The video file is gone.")
@@ -239,9 +249,10 @@ class YouTubePublisher(Publisher):
                     vid = body.get("id")
                     if not vid:
                         raise PublishError("YouTube accepted the upload but returned no video id.", retryable=True)
+                    note = self._set_thumbnail(vid, post.thumbnail) if post.thumbnail else ""
                     if progress:
                         progress(1.0)
-                    return Result(vid, f"https://youtu.be/{vid}")
+                    return Result(vid, f"https://youtu.be/{vid}", note)
                 if code != 308:
                     raise PublishError(f"unexpected answer from YouTube (HTTP {code})", retryable=True)
                 sent += len(chunk)
@@ -249,6 +260,19 @@ class YouTubePublisher(Publisher):
                     progress(min(0.99, sent / max(1, size)))
                 if not chunk:
                     raise PublishError("YouTube didn't finish the upload.", retryable=True)
+
+    def _set_thumbnail(self, vid: str, path: str) -> str:
+        """Custom thumbnail after the upload. A failure here doesn't fail the post (the video is already up)."""
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            mime = "image/png" if path.lower().endswith(".png") else "image/jpeg"
+            self._request(f"{self.api_base}/upload/youtube/v3/thumbnails/set?videoId={urllib.parse.quote(vid)}", "POST",
+                          data, {"Content-Type": mime, "Content-Length": str(len(data))})
+            return ""
+        except (OSError, PublishError) as e:
+            log.warning("thumbnail not set", video=vid, error=str(e)[:200])
+            return f"Video posted, but the thumbnail wasn't set: {str(e)[:160]} (custom thumbnails need a verified channel)."
 
 
 def _open(url: str) -> None:

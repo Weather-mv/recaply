@@ -1,4 +1,4 @@
-# Recaply's online service (cloud.py): the website, accounts, plans, payments
+# Clipforge's online service (cloud.py): the website, accounts, plans, payments
 # and the API the Windows app signs in through. No video work happens here,
 # so the image is small and needs no ffmpeg.
 FROM python:3.13-slim

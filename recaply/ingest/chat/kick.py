@@ -13,7 +13,7 @@ from recaply.ingest.chat import ChatUnavailable
 from recaply.providers.http import ProviderError, get_json
 
 API = "https://kick.com/api"
-HEADERS = {"User-Agent": "Mozilla/5.0 (Recaply)", "Referer": "https://kick.com/"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Clipforge)", "Referer": "https://kick.com/"}
 STEP = 5.0            # seconds of chat per request
 MAX_REQUESTS = 2500
 WORKERS = 6

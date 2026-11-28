@@ -31,14 +31,15 @@ from recaply.ingest.sources import InputError, Source, resolve
 from recaply.log import get_logger
 from recaply.profiles import cues as cues_mod
 from recaply.profiles import detect_profile, get_profile
-from recaply.providers.llm import get_llm
+from recaply.providers.llm import llm_chain
 from recaply.providers.transcribe import get_transcriber, transcribe_cached
 from recaply.providers.transcribe.base import BLOCK, blocks_for
-from recaply.score.boundaries import snap
+from recaply.score.beats import beat_score, clip_beats, score_beats
+from recaply.score.boundaries import anchor_start, snap
 from recaply.score.fusion import fuse
 from recaply.score.rerank import headline, rerank
 from recaply.score.select import select
-from recaply.score.windows import (peak_windows, sliding_windows, text_score, top_windows,
+from recaply.score.windows import (peak_windows, probe_windows, text_score, top_windows,
                                    words_between)
 from recaply.settings import settings
 from recaply.signals.audio_energy import dead_air, to_db
@@ -117,6 +118,10 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     if profile.segmenter:
         raise InputError(f"The '{profile.label}' profile runs in rounds mode in the app.")
     cache = StageCache(src.key)
+    if src.kind == "url":
+        from pipeline import cookie_problem
+        if cookie_problem():
+            tel.note(cookie_problem())
     log.info("analyze", source=src.key, title=src.title[:60], profile=profile.key, duration=round(src.duration))
 
     # chat replay is fetched in the background while the audio comes down
@@ -129,17 +134,17 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
 
     had_audio = src.kind == "file" or any(n.startswith("audio.") and not n.endswith(".part")
                                           for n in os.listdir(cache.dir))
-    progress("Fetching the audio only", 0.02)
+    progress("Downloading & Extracting Audio...", 0.02)
     with tel.stage("audio", cached=had_audio):
-        apath = audio_ingest.ensure_audio(src, cache, progress=lambda f: progress("Fetching the audio only",
+        apath = audio_ingest.ensure_audio(src, cache, progress=lambda f: progress("Downloading & Extracting Audio...",
                                                                                    0.02 + 0.2 * f))
 
-    progress("Measuring loudness", 0.22)
+    progress("Analyzing Audio Energy (Finding Hype Moments)...", 0.22)
     hit = cache.get_array("rms", {"v": 1})
     with tel.stage("loudness", cached=hit is not None):
         rms = hit if hit is not None else cache.array("rms", {"v": 1}, lambda: audio_ingest.loudness(
             apath, src.duration, workers=settings.workers,
-            progress=lambda f: progress("Measuring loudness", 0.22 + 0.1 * f)))
+            progress=lambda f: progress("Analyzing Audio Energy (Finding Hype Moments)...", 0.22 + 0.1 * f)))
     duration = float(src.duration or len(rms))
     n = len(rms)
 
@@ -171,7 +176,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
         tel.note("chat replay is switched off (RECAPLY_CHAT=0)")
 
     # ---- analyze: cheap signals over the whole video, in parallel
-    progress("Analysing signals", 0.32)
+    progress("Analyzing Audio Energy (Finding Hype Moments)...", 0.32)
     sigs: dict[str, np.ndarray] = {}
     todo = []
     for name, weight in profile.weights.items():
@@ -211,7 +216,7 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
     k = opts.shortlist or settings.shortlist_size or (24 if profile.kind == "talk" else 16)
     transcriber = None
     try:
-        transcriber = get_transcriber(opts.transcriber)
+        transcriber = get_transcriber(opts.transcriber, note=tel.note)
     except ValueError as e:
         tel.note(f"transcription off: {e}")
     text_w = profile.weights.get("transcript", 0.0)
@@ -220,11 +225,15 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
 
     funnel = {"audio_sec": round(duration, 1), "transcribed_sec": 0.0}
 
+    seen_blocks: set[int] = set()
+
     def do_transcribe(spans, label, base, span):
         nonlocal transcriber
         if transcriber is None:
             return []
-        funnel["transcribed_sec"] = round(min(duration, len(blocks_for(spans, duration)) * BLOCK), 1)   # the 30 s blocks it needs
+        label = f"Transcribing Moments ({getattr(transcriber, 'label', 'Local GPU/CPU')})..."
+        seen_blocks.update(blocks_for(spans, duration))              # the 30 s blocks it needs, over all passes
+        funnel["transcribed_sec"] = round(min(duration, len(seen_blocks) * BLOCK), 1)
         try:
             with tel.stage("transcribe"):
                 return transcribe_cached(transcriber, apath, cache, spans, duration, vocab=vocab,
@@ -237,14 +246,40 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
             return []
 
     if profile.transcribe_all and transcriber is not None:
-        words = do_transcribe([(0.0, duration)], "Transcribing", 0.34, 0.4)
-        windows = sliding_windows(fused, profile, duration)
+        # speech-heavy video: never transcribe it all (quota!). Probe it, then go deep on the best spots.
+        progress("Extracting Top Moments...", 0.33)
+        peaks = peak_windows(fused, profile, max(3, k // 4), duration, signals=sigs)
+        pool = peaks + probe_windows(fused, profile, duration, settings.talk_probe_every, settings.talk_probe_len)
+        for w in peaks:                      # a peak is probed on the one block around it, like the even samples
+            b0 = int(w.peak // BLOCK) * BLOCK
+            w.probe = (float(b0), min(duration, b0 + BLOCK))
+        first = [w.probe for w in pool]
+        words = do_transcribe(first, "Transcribing", 0.34, 0.2)                    # pass 1: probes + peaks
+        for w in pool:
+            a, b = w.probe or (w.start, w.end)
+            w.text_score = text_score(words, profile, a, b)
+        windows = top_windows(pool, k, text_w if words else 0.0)
+        # rolling stop: with plenty of candidates, drop quiet windows whose probe has no clippable speech
+        if len(windows) > 2 * max(1, opts.count):
+            keep = [w for w in windows if w.text_score > 0.05 or w.signal_score > 0.25]
+            windows = keep if len(keep) >= opts.count else windows
+        deep, used = [], set(seen_blocks)        # best windows first, until the audio budget is spent
+        budget = settings.talk_max_share * duration
+        kept = []
         for w in windows:
-            w.text_score = text_score(words, profile, w.start, w.end)
-        windows = top_windows(windows, k, text_w if words else 0.0)
+            span = (max(0.0, w.start - 8), min(duration, w.end + 8))
+            blocks = used | set(blocks_for([span], duration))
+            if kept and len(kept) >= max(1, opts.count) and len(blocks) * BLOCK > budget:
+                continue
+            used, kept = blocks, kept + [w]
+            deep.append(span)
+        windows = kept
+        words = do_transcribe(deep, "Transcribing", 0.54, 0.2)                     # pass 2: full windows (probe blocks cached)
         for w in windows:
             w.words = words_between(words, w.start - 10, w.end + 10)
+            w.text_score = text_score(words, profile, w.start, w.end)
     else:
+        progress("Extracting Top Moments...", 0.33)
         windows = peak_windows(fused, profile, k, duration, signals=sigs)
         spans = [(max(0.0, w.start - 8), min(duration, w.end + 8)) for w in windows]
         words = do_transcribe(spans, "Transcribing the best moments", 0.34, 0.4)
@@ -257,32 +292,57 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
                          for name, v in sigs.items() if len(v[int(w.start):int(w.end) + 1])}
 
     # ---- score: LLM re-rank of the shortlist
-    llm = get_llm(opts.llm)
-    if llm is None:
-        tel.note(f"no LLM configured ({opts.llm or settings.llm_provider}); heuristic scores")
+    llm = llm_chain(opts.llm, note=tel.note)       # every usable provider in fallback order, or None (rules)
     progress("Scoring with AI" if llm else "Scoring", 0.76)
     with tel.stage("score"):
         suggestions, scorer = rerank(windows, profile, src.title, llm, tel)
+
+    # ---- story beats: label what each shortlisted moment does (hook / setup / build / payoff ...)
+    beats_by_window: list[list[dict]] = [[] for _ in windows]
+    if llm is not None and settings.story_beats and scorer != "heuristic":
+        progress(f"Story Beat Analysis ({llm.provider.capitalize()})...", 0.86)
+        with tel.stage("beats"), ThreadPoolExecutor(1 if llm.provider == "ollama" else 3) as ex:
+            beats_by_window = list(ex.map(
+                lambda ws: score_beats(words_between(ws[0].words, ws[1]["start"], ws[1]["end"]), llm, profile,
+                                       src.title, tel) if ws[0].words else [],
+                zip(windows, suggestions)))
 
     # ---- select: clean boundaries, de-duplicate, rank
     db = to_db(rms)
     clips = []
     for i, (w, sug) in enumerate(zip(windows, suggestions), 1):
         s, e = snap(w.words, sug["start"], sug["end"], profile.clip_min, profile.clip_max, duration, energy=db)
+        # open on the strongest moment, not a quiet lead-in (the peak and the end stay)
+        hooks = [b["start"] for b in beats_by_window[i - 1] if b["type"] == "hook" and s < b["start"] < e]
+        s, e, anchor = anchor_start(w.words, s, e, w.peak, profile.clip_min, curve=fused, hook_starts=hooks,
+                                    max_len=profile.clip_max, duration=duration, energy=db)
         cw = words_between(w.words, s, e)
+        beats = clip_beats(beats_by_window[i - 1], s, e)
+        bscore = beat_score(beats)
+        if bscore is not None:          # the story pass nudges the rank a little: 80% as before, 20% best payoff
+            sug["score"] = round(0.8 * sug["score"] + 0.2 * bscore, 1)
         if sug.get("llm_score") is None:           # rule-based: title from the final clip's best line
             sug["title"] = headline(cw, profile) or f"Moment at {fmt_hms(w.peak)}"
             sug["description"] = sug.get("description") or sug["title"]
         clips.append({
             "id": i, "start": s, "end": e, "duration": round(e - s, 2), "time": fmt_hms(s),
-            "score": sug["score"], "llm_score": sug.get("llm_score"),
+            "score": sug["score"], "llm_score": sug.get("llm_score"), "virality": sug.get("virality"),
             "signal_score": round(100 * w.signal_score, 1), "text_score": round(100 * w.text_score, 1),
             "reason": sug["reason"], "title": sug["title"], "hook": sug["hook"],
             "description": sug.get("description") or "", "hashtags": sug.get("hashtags") or [],
-            "emphasis": sug.get("emphasis") or [],
+            "emphasis": sug.get("emphasis") or [], "beats": beats, "beat_score": bscore,
             "transcript": " ".join(x["w"] for x in cw)[:1500], "signals": w.signals,
             "window": [round(w.start, 1), round(w.end, 1)],
+            **({"anchor": anchor} if anchor["moved"] else {}),
         })
+    # ---- hook check: the AI rates what a viewer meets first (3 s of words + the first frame); weak openers go
+    if llm is not None and scorer != "heuristic" and settings.hook_check and clips:
+        progress(f"Checking each clip's hook ({llm.provider.capitalize()})...", 0.93)
+        with tel.stage("hook"):
+            clips = hook_pass(clips, src, llm, words, profile, tel, sigs)
+    elif settings.hook_check and clips:
+        tel.note("hook check skipped: it needs the AI (start Ollama or add a key in Settings)")
+
     with tel.stage("select"):
         chosen = select(clips, opts.count)
     progress("Done", 1.0)
@@ -299,6 +359,51 @@ def analyze(source: str | Source, opts: Options | None = None, progress: Progres
                    "windows": len(windows), "llm_calls": sum(t["calls"] for t in tel.tokens.values())},
         "summary": tel.summary(),
     }
+
+
+HOOK_FRAME_FORMAT = "bv*[height<=480]/b[height<=480]/bv*/b"
+
+
+def hook_pass(clips: list[dict], src: Source, llm, words: list[dict], profile, tel: Telemetry,
+              sigs: dict[str, np.ndarray] | None = None) -> list[dict]:
+    """
+    Rate the opening of the best `hook_top` clips (recaply/score/hook.py), drop weak ones, and keep the
+    rest ranked with the hook folded in. Clips past the top `hook_top` aren't surfaced once rating works.
+    Any failure here leaves the clips as they were.
+    """
+    from recaply.score import hook
+    top = sorted(clips, key=lambda c: c["score"], reverse=True)[: max(1, settings.hook_top)]
+    for c in top:                      # what the per-second signals say about the first 3 s, not the whole clip
+        a = int(c["start"])
+        c["opening_signals"] = {k: round(float(v[a:a + 3].max()), 3) for k, v in (sigs or {}).items() if len(v[a:a + 3])}
+    frames: dict[float, bytes] = {}
+    if src.has_video:
+        try:
+            if src.kind == "file":
+                inputs = [(src.location, {})]
+            else:
+                from recaply.ingest.sources import stream_inputs
+                inputs = stream_inputs(src, HOOK_FRAME_FORMAT)[:1]
+            with tel.stage("hook_frames"):
+                frames = hook.grab_frames(inputs, [c["start"] for c in top])
+        except Exception as e:  # noqa: BLE001 — rate on the words alone
+            tel.note(f"hook check: first frames not read ({str(e)[:100]})")
+    try:
+        rated = hook.check_hooks(top, words, frames, llm, src.title, profile.label,
+                                 vision_model=settings.vision_model, base_url=settings.ollama_url, telemetry=tel)
+    except Exception as e:  # noqa: BLE001
+        log.warning("hook check failed", error=str(e)[:200])
+        tel.note(f"hook check failed: {str(e)[:120]}")
+        return clips
+    if not rated:
+        tel.note("hook check: the AI didn't rate any opening, so no clip was filtered")
+        return clips
+    kept, note = hook.apply(top, settings.hook_min)
+    if note:
+        tel.note(note)
+    log.info("hook check", rated=rated, kept=len(kept), frames=len(frames),
+             vision=bool(settings.vision_model and hook.vision_ready(settings.vision_model, settings.ollama_url)))
+    return kept
 
 
 def cut_clips(result: dict, ids: list[int], out_dir: str, quality: str = "1080",
@@ -447,6 +552,57 @@ def render_shorts(result: dict, ids: list[int], out_dir: str, opts: dict | None 
     return out
 
 
+PREVIEW_SECONDS = 5.0
+
+
+def render_preview(result: dict, clip_id: int, out_dir: str, opts: dict | None = None, start: float | None = None,
+                   end: float | None = None, seconds: float = PREVIEW_SECONDS, owner=None,
+                   progress: Callable[[float, str], None] | None = None, telemetry: Telemetry | None = None) -> dict:
+    """
+    A short, low-resolution look at how a clip will come out (crop and captions) before the real export:
+    `seconds` of the clip from `start` (default: the clip's start; `start`/`end` also let the editor try
+    other cut points), cut at 720p and rendered as the 720p "draft" preset. Free: nothing is charged and
+    the real short and cut files are never touched. Returns render_short's info ({"file", "layout", ...}).
+    """
+    from recaply.profiles import get_profile
+    from recaply.render.shorts import ShortOptions, render_short
+    tel = telemetry or Telemetry()
+    by_id = {c["id"]: c for c in result["clips"]}
+    c = by_id.get(clip_id)
+    if c is None:
+        raise InputError("That clip isn't in this project.")
+    total = float((result.get("source") or {}).get("duration") or c["end"])
+    a = c["start"] if start is None else max(0.0, min(float(start), total - 1.0))
+    b = c["end"] if end is None else max(a + 1.0, min(float(end), total))
+    b = min(b, a + max(1.0, seconds))
+    trimmed = {**c, "start": a, "end": b, "duration": round(b - a, 2)}
+    sub = {**result, "clips": [trimmed]}
+    o = ShortOptions.from_dict({**(opts or {}), "export": "draft"})
+    o.tighten, o.broll, o.translate, o.teaser, o.bgm = False, False, "", False, ""   # slow or paid extras: only in the real export
+    cut_dir = os.path.join(out_dir, "_preview")
+    if progress:
+        progress(0.02, "Cutting a few seconds")
+    with tel.stage("preview_cut"):
+        cuts = cut_clips(sub, [clip_id], cut_dir, quality="720", telemetry=tel)
+    info = cuts.get(clip_id) or {}
+    if "file" not in info:
+        raise RuntimeError(info.get("error") or "Cutting the preview failed.")
+    try:
+        profile = get_profile(result["profile"]["key"])
+        reframe_pref, keywords = profile.reframe, profile.keywords
+    except KeyError:
+        reframe_pref, keywords = "center", ()
+    if progress:
+        progress(0.2, "Reading the words")
+    words = clip_words(sub, trimmed, tel) if o.captions != "none" else []
+    with tel.stage("preview_render"):
+        out = render_short(trimmed, os.path.join(cut_dir, info["file"]), words, out_dir, o,
+                           profile_reframe=reframe_pref, keywords=keywords, owner=owner, watermark=False,
+                           telemetry=tel, tag="preview_",
+                           progress=(lambda f, s: progress(0.3 + 0.7 * f, s)) if progress else None)
+    return {**out, "start": a, "end": b}
+
+
 # ---------- Phase 5: transcript editing ----------
 
 def edit_clip(result: dict, clip_id: int, deleted: list[int], out_dir: str, cut_file: str | None = None,
@@ -484,7 +640,8 @@ def edit_clip(result: dict, clip_id: int, deleted: list[int], out_dir: str, cut_
     notes: list[str] = []
     with tel.stage("edit"):
         tx.render(src, dst, segs, has_audio=bool(meta["audio"]))
-    new_words = tx.retime(words, dele, segs)
+    # each kept word remembers where it started in the source, so caption edits still find it after the cut
+    new_words = tx.retime([{**w, "o": round(clip["start"] + w["s"], 3)} for w in words], dele, segs)
     used: list = []
     if broll and new_words:
         m2 = editor.probe(dst)

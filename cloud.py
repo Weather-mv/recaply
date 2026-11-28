@@ -1,11 +1,11 @@
 """
-cloud.py — Recaply's online service: the product website, accounts, plans
+cloud.py — Clipforge's online service: the product website, accounts, plans
 and payments, and the API the Windows app signs in through (cloud_api.py).
 
 It never handles video: recaps, clips, reels and the editor run in the
 Windows app on each user's PC (desktop.py). So this server is small and
 cheap to host. The web app (/app) works the same way: the page hands the
-work to the Recaply helper running on the user's PC.
+work to the Clipforge helper running on the user's PC.
 
     python cloud.py        # http://127.0.0.1:8000
 
@@ -42,7 +42,7 @@ def webhook_body_limit():
 
 auth.init_app(app)
 app.register_blueprint(cloud_api.bp)
-# The web app's page looks for the Recaply helper on this PC (see /app).
+# The web app's page looks for the Clipforge helper on this PC (see /app).
 webutil.install(app, webutil.csp(connect=" ".join(f"http://127.0.0.1:{p}" for p in HELPER_PORTS)),
                 auth.current_user)
 
@@ -77,8 +77,8 @@ def download_file(name):
 
 @app.route("/app")
 def app_home():
-    """The web app. Videos are processed by the Recaply helper on the user's own PC: this
-    page finds it on 127.0.0.1, signs it in to this account and opens Recaply in this tab."""
+    """The web app. Videos are processed by the Clipforge helper on the user's own PC: this
+    page finds it on 127.0.0.1, signs it in to this account and opens Clipforge in this tab."""
     link, _ = installer()
     return render_template("webapp.html", installer=link, version=VERSION, ports=HELPER_PORTS)
 
@@ -107,8 +107,8 @@ if __name__ == "__main__":
     try:
         from waitress import serve
     except ImportError:
-        print(f"Recaply online service (dev server): http://{shown}:{PORT}")
+        print(f"Clipforge online service (dev server): http://{shown}:{PORT}")
         app.run(host=HOST, port=PORT, threaded=True)
     else:
-        print(f"Recaply online service: http://{shown}:{PORT}")
-        serve(app, host=HOST, port=PORT, threads=env_int("RECAPLY_THREADS", 16), ident="Recaply")
+        print(f"Clipforge online service: http://{shown}:{PORT}")
+        serve(app, host=HOST, port=PORT, threads=env_int("RECAPLY_THREADS", 16), ident="Clipforge")

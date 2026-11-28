@@ -9,6 +9,7 @@ recording needs the user's own PC and disk).
   DELETE /api/live/channels/<name>          stop and remove a channel
   POST   /api/live/channels/<name>/start    start watching
   POST   /api/live/channels/<name>/stop     stop (pending moments are still cut)
+  POST   /api/live/channels/<name>/clip     clip the last N seconds now ({"seconds": 60})
 """
 
 from __future__ import annotations
@@ -89,11 +90,6 @@ def _state() -> dict:
             "profiles": [{"key": p.key, "label": p.label} for p in all_profiles() if not p.hidden]}
 
 
-@bp.route("/live")
-def live_page():
-    return render_template("live.html", desktop=DESKTOP or available())
-
-
 @bp.route("/api/live")
 def live_state():
     return jsonify(_state())
@@ -147,6 +143,21 @@ def live_start(name):
     return jsonify(ok=True)
 
 
+@bp.route("/api/live/channels/<name>/clip", methods=["POST"])
+def live_clip_now(name):
+    """Clip the last N seconds of a recording channel right now (default 60)."""
+    name = _guard(_name(name))
+    try:
+        seconds = float((request.get_json(silent=True) or {}).get("seconds", 60))
+    except (TypeError, ValueError):
+        return jsonify(error="seconds must be a number."), 400
+    try:
+        info = get_manager().clip_now(name, seconds)
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 409
+    return jsonify(ok=True, clip={k: v for k, v in info.items() if k != "file"})
+
+
 @bp.route("/api/live/channels/<name>/stop", methods=["POST"])
 def live_stop(name):
     return jsonify(ok=get_manager().stop(_guard(_name(name))))
@@ -160,11 +171,6 @@ def start_enabled() -> list[str]:
         return []
 
 
-_LIVE_URL = __import__("re").compile(
-    r"^https?://(www\.|m\.)?(youtube\.com/(live/|(@[\w.-]+|channel/[\w-]+|c/[\w.-]+|user/[\w.-]+)/live)|"
-    r"twitch\.tv/[A-Za-z0-9_]{3,25}/?(\?.*)?$|kick\.com/[A-Za-z0-9_-]{3,25}/?(\?.*)?$)", __import__("re").I)
-
-
 def channel_name_for(url: str) -> str:
     """A short, valid, unique-enough channel name from a link."""
     import hashlib
@@ -174,16 +180,10 @@ def channel_name_for(url: str) -> str:
 
 
 def is_live_link(url: str) -> bool:
-    """True when `url` is a live link: by its shape, or (for a plain YouTube watch link) by asking YouTube."""
-    if _LIVE_URL.match(url or ""):
-        return True
-    if "youtube.com/watch" in (url or "") or "youtu.be/" in (url or ""):
-        try:
-            from recaply.ingest.sources import resolve
-            return bool(resolve(url).is_live)
-        except Exception:  # noqa: BLE001 — not live as far as we can tell; the normal job reports its own problem
-            return False
-    return False
+    """True when Live mode should record `url`: a channel link, or one YouTube broadcast that is on air (or
+    scheduled). A stream that has ended is an ordinary video and goes to the normal clip job instead."""
+    from recaply.live.links import should_watch
+    return should_watch(url)
 
 
 def watch_link(url: str, profile: str = "gaming") -> str:

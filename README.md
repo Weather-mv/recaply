@@ -1,6 +1,6 @@
-# Recaply: AI clips from any long video
+# Clipforge: AI clips from any long video
 
-Recaply finds the best moments in a stream, VOD, podcast or any long video,
+Clipforge finds the best moments in a stream, VOD, podcast or any long video,
 scores them (0-100, with a reason), and cuts them into short clips. It works
 for gaming (any game: GTA, Valorant, shooters), podcasts and interviews, IRL
 streams and talks. Valorant VCT broadcasts keep their dedicated round scanner
@@ -15,7 +15,7 @@ It has three parts:
   login, the three plans (see [Accounts and plans](#accounts-and-plans)),
   Stripe payments, and a small API the app signs in through. It never touches
   video, so it's cheap to host.
-- **The web app** (`/app` on the website). The same Recaply, in the browser:
+- **The web app** (`/app` on the website). The same Clipforge, in the browser:
   the page finds the app running on the user's PC (in the tray), signs it in
   to the same account and opens it in the tab. The work still happens on the
   user's PC. See [The web app](#the-web-app).
@@ -25,7 +25,7 @@ What the app does:
 1. Paste a YouTube, Twitch or Kick link, a file path on the PC, or upload a
    video. Pick the content type or leave it on **Auto-detect**, and choose how
    many clips and how long.
-2. Recaply fetches **only the audio**, measures it, shortlists the strongest
+2. Clipforge fetches **only the audio**, measures it, shortlists the strongest
    moments, transcribes only those, and has an AI rank them. The job page
    shows live progress, then the ranked clips with score, reason, title, hook
    and transcript.
@@ -37,7 +37,7 @@ What the app does:
    [Detection modes](#detection-modes)).
 
 > **Your responsibility:** only clip videos you own or have permission to
-> use, and follow each platform's terms when you post clips. Recaply doesn't
+> use, and follow each platform's terms when you post clips. Clipforge doesn't
 > remove watermarks or get around DRM or platform protections.
 
 ## How the clip finder works
@@ -99,6 +99,31 @@ flowchart LR
 | `live_routes.py`, `templates/live.html` | The Live page and API (Windows app only) |
 | `studio_routes.py`, `templates/edit.html`, `queue.html`, `usage.html` | Transcript editor, publishing, batch queue, usage dashboard |
 | `tests/` | Unit tests (fusion, boundaries, windows, selection, profiles, LLM handling) and an end-to-end test on `tests/fixtures/` |
+
+### Studio: the web UI (React)
+
+Clipforge's front door is the **AI Studio** at `/studio` (`/app` redirects there; the classic Valorant round
+dashboard is still at `/app?classic=1`). It is a Vite + React + TypeScript app with Tailwind CSS and shadcn/ui
+components in `frontend/`, built into `static/studio/` (the built files are committed, so you only need Node
+to change the UI).
+
+| Screen | What it does |
+|---|---|
+| Dashboard `/studio` | One input bar ("Paste a link..." or drop a file), content type (auto-detect by default), recent projects, and a header status pill that says what the engine is doing ("Detecting content type...") plus whether the local AI (Ollama) is ready. |
+| Project `/studio/p/<id>` | Split screen. Left: the video player with a beat timeline. Right: the story beats from the AI (Hook, Setup, Tension, Payoff, Reaction, Tangent) and the ranked clips. Click a beat, a clip or the timeline to jump. |
+| Director `/studio/p/<id>/clip/<n>` | Transcript (click a word to seek, or "Cut words" to strike words out), a live 9:16 preview drawn from the video (reframe layouts, karaoke captions, hook, safe zone), and a Video / Audio / Text timeline with the waveform and your cuts. Export applies the cuts, then renders the short. |
+
+The preview plays the cut clip, else the source video (uploads and local files), else the audio the analysis used
+(links), so a link needs one "Cut this clip" before it can be watched. The preview for `face` and `split` layouts is
+an approximation: face tracking and the camera position are found on export.
+
+```powershell
+cd frontend
+npm install
+npm run dev         # http://localhost:5173, proxies the API to a running `python app.py` on :5000
+npm test            # unit tests for the reframe maths, word timing and status text
+npm run build       # writes ../static/studio (commit it)
+```
 
 ### Command line
 
@@ -184,7 +209,7 @@ Talk profiles transcribe everything on purpose.
 
 ### Live mode (Phase 4)
 
-Clip streams while they happen. Recaply records the stream on your PC, listens
+Clip streams while they happen. Clipforge records the stream on your PC, listens
 to the sound and the chat, and when a big moment hits it cuts the clip and runs
 the normal clip pipeline on it in the background.
 
@@ -273,14 +298,45 @@ and can be retried by hand.
   6 uploads a day, and videos uploaded by an API project that Google hasn't audited
   are locked to private until it is.
 - **Webhook** (`RECAPLY_PUBLISH_WEBHOOK`): the video and its text are POSTed (multipart) to a URL you control, so
-  Zapier / Make / n8n or an Upload-Post style service can post to TikTok and
-  Instagram. There is no direct TikTok or Instagram integration yet.
+  Zapier / Make / n8n or an Upload-Post style service can post to TikTok and other
+  networks. YouTube, LinkedIn, X and Instagram are posted to directly from the Social hub (below).
 
 ```bash
 .venv\Scripts\python -m recaply publish status
 .venv\Scripts\python -m recaply publish add <job id> short_00_9x16.mp4 --title "..." --at 2026-11-20T09:00
 .venv\Scripts\python -m recaply publish list        # run: uploads what is due, until Ctrl-C
 ```
+
+### Social hub: accounts, captions, thumbnails and a content calendar
+
+**Studio → Social** posts finished clips to **YouTube, LinkedIn, X and Instagram**:
+
+- **Accounts.** Connect any number of accounts per network (two YouTube channels, a
+  personal LinkedIn…). Sign-in opens in your browser and comes back to a small local page
+  on port 47620. Tokens are encrypted on disk (Windows DPAPI; Fernet elsewhere) and never
+  sent to the browser. Expired sign-ins are refreshed before each upload; when a network
+  refuses, the account shows **Reconnect**.
+- **Composer.** Pick a short or cut, tick the accounts, and write one caption for all of them
+  or tune it per network (character counters for each network's limit). **Write with AI**
+  drafts a title, caption and hashtags per network from the clip's transcript, using Ollama or
+  your cloud keys. Without AI, the clip's own copy is used.
+- **Thumbnails.** Pick one of four frames from the clip, add bold title text (Bold / Boxed /
+  No text styles, your Brand Kit colour, font and logo) and get the right size per network:
+  1280×720 for YouTube, 1080×1920 vertical, 1200×627 for LinkedIn. Or upload your own.
+- **Calendar.** Month and week views with every post's status (scheduled, posting, posted,
+  failed). Drag a post to another day to move it, click it for the live links or the error,
+  and retry. Drafts wait in the side list. Posts go out through the publish scheduler while
+  Clipforge runs; a post missed while it was closed goes out at the next start.
+
+Setup per network (developer apps, redirect URL, keys) is in `.env.example` under
+"Social hub". What each network requires:
+
+| Network | Needs | Limits |
+|---|---|---|
+| YouTube | Google Cloud OAuth client, YouTube Data API v3 | ~6 uploads/day on the default quota; custom thumbnails need a verified channel |
+| LinkedIn | App with "Share on LinkedIn" + OpenID Connect | Own profile; sign in again every 60 days |
+| X | Developer app, OAuth 2.0, **paid API plan** to post video | 280 characters |
+| Instagram | Meta app, Instagram Login, **Business/Creator account** | 100 API posts/day; cover is picked by frame |
 
 **Batch queue.** The **Queue** page takes a list of links (one per line) with shared
 options, shows every job with progress, and offers cancel (before it starts),
@@ -300,8 +356,8 @@ and are masked in logs.
 
 | Setting | Options (default first) |
 |---------|-------------------------|
-| `RECAPLY_TRANSCRIBER` | `faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
-| `RECAPLY_LLM` | `gemini` (`GEMINI_API_KEY`, free tier), `anthropic` (`ANTHROPIC_API_KEY`, Claude Haiku), `openai` (`OPENAI_API_KEY`), `ollama` (local, `OLLAMA_URL`), `none` |
+| `TRANSCRIPTION_PROVIDER` (or `RECAPLY_TRANSCRIBER`) | `groq` (default: `GROQ_API_KEY`, whisper-large-v3, parallel, 429 backoff, then local fallback), `local`/`faster-whisper` (on this PC: large-v3-turbo on NVIDIA GPUs, small on CPU), `groq` (`GROQ_API_KEY`), `openai` (`OPENAI_API_KEY`), `none` |
+| `RECAPLY_LLM` | `auto` (default: every usable provider in turn, Groq → Gemini → Claude → OpenAI → Ollama → rules), `groq` (`GROQ_API_KEY`, `RECAPLY_GROQ_LLM_MODEL`), `gemini` (`GEMINI_API_KEY`), `anthropic` (`ANTHROPIC_API_KEY`), `openai` (`OPENAI_API_KEY`), `ollama` (local and free, `OLLAMA_URL`, `RECAPLY_OLLAMA_MODEL`), `none`. A named provider goes first and the others stay as fallbacks; `RECAPLY_LLM_ORDER` sets the whole order. Check with `python -m recaply status` |
 
 ### Add a content profile
 
@@ -431,7 +487,7 @@ it as `dist\Recaply-Setup-<version>.exe` (also copied to
 
 | Plan    | Price     | Clips                       | Extras |
 |---------|-----------|-----------------------------|--------|
-| Free    | $0        | 5 during a 5-day trial      | AI captions; reels and exports carry a "Made with Recaply" watermark |
+| Free    | $0        | 5 during a 5-day trial      | AI captions; reels and exports carry a "Made with Clipforge" watermark |
 | Starter | $9/month  | 30 a month                  | No watermark, full editor, AI captions |
 | Pro     | $19/month | Unlimited                   | Fastest processing: 6 downloads at once (Starter 3, Free 2) |
 
@@ -532,13 +588,13 @@ gives durable storage and fast video delivery, not several servers at once.
 
 1. The user logs in on the website and opens `/app` (`templates/webapp.html`).
 2. The page asks `http://127.0.0.1:47613-47615/__ping` (`HELPER_PORTS` in
-   config.py) whether Recaply is running. Only the website's own origin
+   config.py) whether Clipforge is running. Only the website's own origin
    (`RECAPLY_CLOUD_URL` of the build) can read the answer.
 3. It gets a one-time code (`POST /app/connect`, 2 minutes, single use) and
    opens `http://127.0.0.1:<port>/__web?c=<code>`. The app trades the code
    with `POST /api/v1/connect` for its own sign-in and gives the tab the same
    access cookie the window has.
-4. Not running? The page offers **Start Recaply** (`recaply://start`,
+4. Not running? The page offers **Start Clipforge** (`recaply://start`,
    registered by the installer, runs `Recaply.exe --helper` in the tray) and
    the download, and opens the app by itself once it starts.
 
@@ -853,7 +909,7 @@ short with two video views renders in about 7 seconds on a GTX 1650 Ti). Project
   line, not per word. B-roll is matched by a short search phrase, so it can be
   off-topic: look at the preview, and re-render without it if it is. Open-licence
   pictures from Openverse are public-domain only. Publishing works for YouTube
-  Shorts and a webhook; the schedule only runs while Recaply is running (a
+  Shorts and a webhook; the schedule only runs while Clipforge is running (a
   missed time uploads at the next start). I could not run the YouTube
   upload against Google's real servers here: it is tested against a local
   stand-in for the API, so try one private upload first.

@@ -24,7 +24,9 @@ import gc
 import glob
 import os
 import subprocess
+import sys
 import threading
+import time
 
 import numpy as np
 
@@ -35,22 +37,42 @@ DEVICE = os.environ.get("RECAPLY_WHISPER_DEVICE", "auto")     # auto / cuda / cp
 # editor's captions were built for Valorant clips); the clip pipeline passes each
 # profile's own vocabulary instead.
 from recaply.profiles.valorant.vocab import VOCAB  # noqa: E402
+from recaply.log import get_logger  # noqa: E402
 LOCK = threading.Lock()                 # one transcription at a time (GPU memory)
 _dll_dirs_added = False
 
 
+COMPUTE = os.environ.get("RECAPLY_WHISPER_COMPUTE", "")      # e.g. int8_float16 / float16 / int8; default picks the best
+IDLE_UNLOAD = float(os.environ.get("RECAPLY_WHISPER_IDLE", "300"))  # seconds a loaded model stays in (GPU) memory
+
+log = get_logger("recaply.whisper")
+
+
+def _nvidia_dirs():
+    """Folders holding the cuBLAS / cuDNN DLLs: pip's nvidia-* packages, or the copy bundled in the app."""
+    bases = []
+    try:
+        import nvidia
+        bases += list(getattr(nvidia, "__path__", []))
+    except ImportError:
+        pass
+    frozen = getattr(sys, "_MEIPASS", None)
+    if frozen and os.path.isdir(os.path.join(frozen, "nvidia")):
+        bases.append(os.path.join(frozen, "nvidia"))
+    out = []
+    for base in bases:
+        out += glob.glob(os.path.join(base, "*", "bin")) + glob.glob(os.path.join(base, "*", "lib"))
+    return out
+
+
 def _cuda_dlls():
-    """Make the pip-installed cuBLAS / cuDNN DLLs findable (Windows)."""
+    """Make the cuBLAS / cuDNN DLLs findable (Windows)."""
     global _dll_dirs_added
     if _dll_dirs_added:
         return
     _dll_dirs_added = True
-    try:
-        import nvidia
-    except ImportError:
-        return
-    for base in list(getattr(nvidia, "__path__", [])):
-        for d in glob.glob(os.path.join(base, "*", "bin")) + glob.glob(os.path.join(base, "*", "lib")):
+    if True:
+        for d in _nvidia_dirs():
             if hasattr(os, "add_dll_directory") and os.path.isdir(d):
                 try:
                     os.add_dll_directory(d)
@@ -80,17 +102,105 @@ def _cublas_loads():
         return False
 
 
+_warned = False
+
+
+def cpu_warning(reason):
+    """A loud log line when an NVIDIA card is there but speech-to-text runs on the CPU (several times slower)."""
+    global _warned
+    if _warned:
+        return
+    _warned = True
+    bar = "!" * 78
+    log.warning(f"\n{bar}\n  SPEECH-TO-TEXT IS RUNNING ON THE CPU, NOT THE GPU ({reason}).\n"
+                f"  It works, but transcription is several times slower. To use the NVIDIA card:\n"
+                f"    pip install -r requirements-gpu.txt   (cuBLAS + cuDNN for CUDA 12)\n{bar}")
+
+
 def _device():
     _cuda_dlls()
     import ctranslate2
+    gpus = ctranslate2.get_cuda_device_count()
     if DEVICE in ("cuda", "cpu"):
         dev = DEVICE
+    elif gpus > 0 and _cublas_loads():
+        dev = "cuda"
     else:
-        dev = "cuda" if ctranslate2.get_cuda_device_count() > 0 and _cublas_loads() else "cpu"
+        dev = "cpu"
+        if gpus > 0:
+            cpu_warning("cuBLAS / cuDNN not found")
     if dev == "cuda":
         types = ctranslate2.get_supported_compute_types("cuda")
+        if COMPUTE and COMPUTE in types:
+            return dev, COMPUTE
         return dev, "int8_float16" if "int8_float16" in types else "float16" if "float16" in types else "float32"
-    return dev, "int8"
+    return dev, COMPUTE if COMPUTE in ("int8", "float32", "int8_float32") else "int8"
+
+
+# ---------- one loaded model, shared and kept warm ----------
+# Loading large-v3 takes several seconds; it used to happen on every transcription. The model now stays
+# loaded for IDLE_UNLOAD seconds after its last use, then is freed so the GPU memory goes back to
+# rendering. Only one model is kept (a 4 GB card can't hold two).
+
+_model_lock = threading.Lock()
+_loaded = {"key": None, "model": None, "users": 0}
+_unload_timer = None
+
+
+def get_model(name, dev, ctype):
+    """(model, dev, ctype): the cached model when it matches, else a fresh one (CUDA failing -> CPU,
+    with a loud warning). Call `release()` when done with it."""
+    from faster_whisper import WhisperModel
+    global _unload_timer
+    with _model_lock:
+        if _unload_timer is not None:
+            _unload_timer.cancel()
+            _unload_timer = None
+        key = (name, dev, ctype)
+        if _loaded["key"] != key or _loaded["model"] is None:
+            _drop_locked()
+            t = time.perf_counter()
+            try:
+                model = WhisperModel(name, device=dev, compute_type=ctype)
+            except Exception as e:  # noqa: BLE001 — e.g. no CUDA runtime: fall back to the CPU
+                if dev == "cpu":
+                    raise
+                cpu_warning(f"the GPU model failed to load: {str(e)[:120]}")
+                dev, ctype = "cpu", "int8"
+                key = (name, dev, ctype)
+                model = WhisperModel(name, device=dev, compute_type=ctype)
+            _loaded.update(key=key, model=model)
+            log.info("whisper model loaded", model=name, device=dev, compute=ctype,
+                     seconds=round(time.perf_counter() - t, 1))
+        _loaded["users"] += 1
+        return _loaded["model"], _loaded["key"][1], _loaded["key"][2]
+
+
+def release():
+    """Done with the model: free it after IDLE_UNLOAD idle seconds (at once when IDLE_UNLOAD is 0)."""
+    global _unload_timer
+    with _model_lock:
+        _loaded["users"] = max(0, _loaded["users"] - 1)
+        if _loaded["users"]:
+            return
+        if IDLE_UNLOAD <= 0:
+            _drop_locked()
+            return
+        _unload_timer = threading.Timer(IDLE_UNLOAD, unload)
+        _unload_timer.daemon = True
+        _unload_timer.start()
+
+
+def unload():
+    with _model_lock:
+        if not _loaded["users"]:
+            _drop_locked()
+
+
+def _drop_locked():
+    if _loaded["model"] is not None:
+        _loaded.update(model=None, key=None)
+        gc.collect()
 
 
 def model_cached(name):
@@ -119,20 +229,13 @@ def transcribe(path, start=0.0, end=None, quality="best", language=None, vocab="
     Words spoken in [start, end] of `path`, in source seconds. `progress(stage,
     fraction)` is called as it goes. Returns (words, info dict).
     """
-    from faster_whisper import WhisperModel
     name = DEFAULT_MODEL or MODELS.get(quality, MODELS["best"])
     with LOCK:
         dev, ctype = _device()
-        if progress:
+        if progress and _loaded["key"] != (name, dev, ctype):
             progress("Downloading the speech model (first time only)" if not model_cached(name)
                      else "Loading the speech model", None)
-        try:
-            model = WhisperModel(name, device=dev, compute_type=ctype)
-        except Exception:  # noqa: BLE001 — e.g. no CUDA runtime: fall back to the CPU
-            if dev == "cpu":
-                raise
-            dev, ctype = "cpu", "int8"
-            model = WhisperModel(name, device=dev, compute_type=ctype)
+        model, dev, ctype = get_model(name, dev, ctype)
         try:
             if progress:
                 progress("Reading the audio", None)
@@ -147,10 +250,13 @@ def transcribe(path, start=0.0, end=None, quality="best", language=None, vocab="
                 condition_on_previous_text=False, hotwords=hot[:900],
                 initial_prompt="Hello, welcome back! Okay, let's go. Wait, what? That's insane.",
                 no_speech_threshold=0.6, compression_ratio_threshold=2.4)
+            from recaply.providers.transcribe.guard import drop_hallucinations, suspect_segment
             words = []
             for seg in segments:
                 if progress:
                     progress("Transcribing", min(1.0, seg.end / total))
+                if suspect_segment(seg):              # invented on music / noise: no captions for it
+                    continue
                 for w in seg.words or []:
                     text = w.word.strip()
                     if not text:
@@ -159,6 +265,7 @@ def transcribe(path, start=0.0, end=None, quality="best", language=None, vocab="
                     e = min(e, s + max(0.25, 0.09 * len(text) + 0.35))   # a word before a pause
                     words.append({"w": text, "s": round(start + s, 3), "e": round(start + max(e, s + 0.06), 3),
                                   "p": round(float(w.probability), 3)})
+            words = drop_hallucinations(words)
             # keep words in order and non-overlapping
             for a, b in zip(words, words[1:]):
                 if b["s"] < a["e"]:
@@ -167,7 +274,7 @@ def transcribe(path, start=0.0, end=None, quality="best", language=None, vocab="
                            "duration": round(total, 2), "model": name, "device": dev}
         finally:
             del model
-            gc.collect()
+            release()
 
 
 def chunk_words(words, max_words=3, max_chars=22, max_gap=0.6):

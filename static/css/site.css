@@ -1,4 +1,4 @@
-/* Recaply website: landing, pricing, login / sign up and account pages. */
+/* Clipforge website: landing, pricing, login / sign up and account pages. */
 
 .site { --w: 1200px; }
 .wrap-site { max-width: var(--w); margin: 0 auto; padding: 0 24px; }
@@ -317,3 +317,24 @@
   .plan-sum { grid-template-columns: 1fr; }
   .snav-cta .btn { padding: 9px 14px; font-size: 15px; }
 }
+
+/* landing: story-beat visuals (replace the old kill-feed demo) */
+.mtag.green { background: rgb(53 197 138 / .16); color: #1f9d6b; }
+.hookbox { position: absolute; left: 12px; right: 12px; top: 30px; padding: 7px 9px; border-radius: 10px; background: rgb(255 255 255 / .95);
+  color: #08080a; font-weight: 800; font-size: 13px; text-align: center; line-height: 1.2; }
+.pbeats { position: absolute; left: 12px; right: 12px; bottom: 14px; display: flex; gap: 3px; height: 6px; }
+.pbeats i { border-radius: 9px; }
+.pbeats .h { background: #3984ff; } .pbeats .s { background: #8b8fa3; } .pbeats .t { background: #ff7442; }
+.pbeats .p { background: #35c58a; } .pbeats .r { background: #a78bfa; }
+.bd { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: var(--bg); font-size: 15px; }
+.bd .k { flex: none; width: 78px; font-weight: 800; }
+.bd .w { flex: 1; color: var(--muted); font-weight: 500; }
+.bd .w b { color: var(--text); font-weight: 700; margin-right: 8px; }
+.bd .v { flex: none; min-width: 34px; text-align: center; padding: 3px 8px; border-radius: 99px; background: var(--fill); font-weight: 700; }
+.bd.hook .k { color: #3984ff; } .bd.setup .k { color: #8b8fa3; } .bd.build .k { color: #ff7442; }
+.bd.payoff .k { color: #1f9d6b; } .bd.react .k { color: #8a63f0; }
+@media (max-width: 560px) { .bd .w { font-size: 14px; } .bd .k { width: 66px; } }
+
+/* the phone preview is a generic video frame now: no crosshair */
+.phone-in { background: linear-gradient(180deg, #1c2f55 0%, #2d3f66 45%, #3d3350 100%); }
+.phone-in::before { display: none; }

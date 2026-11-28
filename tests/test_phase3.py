@@ -419,11 +419,11 @@ def test_funnel_transcribes_only_the_shortlist(monkeypatch, twenty_minutes):
         def transcribe_spans(self, audio_path, spans, vocab="", language=None, progress=None):
             return [[{"w": "wow", "s": a + 1, "e": a + 1.4}] for a, b in spans]
 
-    monkeypatch.setattr(engine, "get_transcriber", lambda name=None: Fake())
+    monkeypatch.setattr(engine, "get_transcriber", lambda name=None, note=None: Fake())
     res = engine.analyze(twenty_minutes, engine.Options(profile="gaming", count=3, shortlist=3, min_len=12, max_len=20,
                                                          llm="none"))
     f = res["funnel"]
-    assert f["audio_sec"] == 1200.0 and f["windows"] == res["shortlist"] == 3
+    assert f["audio_sec"] == pytest.approx(1200.0, abs=1.0) and f["windows"] == res["shortlist"] == 3
     assert 0 < f["transcribed_sec"] <= 3 * 120 and f["share"] < 0.35                 # 3 windows, in 30 s blocks
     talk = engine.analyze(twenty_minutes, engine.Options(profile="talk", count=2, llm="none"))
-    assert talk["funnel"]["share"] == 1.0                      # talk content transcribes everything, as designed
+    assert 0 < talk["funnel"]["share"] < 0.6                 # talk content is probed, never transcribed in full

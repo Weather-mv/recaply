@@ -1,5 +1,5 @@
 """
-PythonAnywhere WSGI file for Recaply's online service (cloud.py).
+PythonAnywhere WSGI file for Clipforge's online service (cloud.py).
 
 Paste this whole file into the WSGI configuration file linked on the Web tab
 (/var/www/<username>_pythonanywhere_com_wsgi.py), replacing what's there.

@@ -32,10 +32,12 @@ from flask import Blueprint, Response, abort, flash, jsonify, redirect, render_t
 from common import allowed_url
 from config import DESKTOP, env_int
 from recaply.ingest.sources import MEDIA_EXTS, looks_like_url
-from recaply.jobs import runner, store
-from recaply.jobs.queue import get_queue
+from recaply.jobs import runner, stages, store
+from recaply.jobs.queue import get_queue, queue_info
 from recaply.jobs.runner import job_dir
 from recaply.profiles import all_profiles
+from recaply.providers.llm import ai_status
+from recaply.settings import settings
 from recaply.render import brand as brandkit
 from recaply.render import presets, reframe, subtitles
 from recaply.render.shorts import ShortOptions
@@ -47,7 +49,7 @@ else:
 
 bp = Blueprint("clips", __name__)
 JOB_ID = re.compile(r"^[0-9a-f]{10}$")
-FILE_NAME = re.compile(r"^[\w.\-]{1,160}\.mp4$")
+FILE_NAME = re.compile(r"^[\w.\-]{1,160}\.(mp4|ass)$")
 UPLOAD_MB = max(1, env_int("RECAPLY_UPLOAD_MB", 2048))
 LENGTHS = {"auto": (None, None), "short": (15, 30), "medium": (30, 60), "long": (60, 90)}
 QUALITIES = ("1080", "720", "best")
@@ -84,12 +86,18 @@ def _options(form) -> dict:
 
 def short_choices() -> dict:
     """Export presets, layouts and caption styles the UI offers for shorts."""
-    layouts = {"auto": "Auto", "face": "Follow the speaker", "split": "Cam on top, gameplay below",
-               "action": "Gameplay crop", "center": "Centre crop", "fit": "Whole frame, blurred sides"}
+    layouts = {"auto": "Auto (finds the facecam)", "split": "Facecam on top, gameplay below",
+               "split_bottom": "Gameplay on top, facecam below", "pip": "Gameplay with a facecam box",
+               "face": "Follow the speaker", "action": "Follow the action", "center": "Centre crop",
+               "fit": "Whole frame, blurred sides"}
+    from recaply.render import bgm
     return {"exports": [{"key": k, "label": v["label"]} for k, v in presets.EXPORTS.items()],
+            "music": bgm.tracks(),
             "layouts": [{"key": k, "label": layouts.get(k, k)} for k in reframe.STRATEGIES],
             "captions": [{"key": "none", "label": "No captions"}, {"key": "brand", "label": "Brand kit style"},
-                         *({"key": k, "label": v["label"]} for k, v in subtitles.PRESETS.items())]}
+                         *({"key": k, "label": v["label"], "style": {x: y for x, y in v.items() if x != "label"}}
+                           for k, v in subtitles.PRESETS.items())],
+            "caption_fonts": brandkit.available_fonts()}
 
 
 def _owned(job_id: str) -> dict:
@@ -102,6 +110,15 @@ def _owned(job_id: str) -> dict:
     return job
 
 
+def _media_flags(job: dict) -> dict:
+    """Which previews exist (source video / analysis audio); the studio's player picks the best."""
+    try:
+        import studio_app
+        return studio_app.media_flags(job)
+    except Exception:  # noqa: BLE001 — a missing preview must never break the job view
+        return {"source": False, "audio": False}
+
+
 def view(job: dict) -> dict:
     """What the page needs (no local paths)."""
     result = dict(job.get("result") or {})
@@ -112,6 +129,7 @@ def view(job: dict) -> dict:
         "error": job.get("error"), "created": job["created"], "result": result or None,
         "cuts": job.get("cuts") or {}, "summary": job.get("summary") or {},
         "options": job.get("options") or {}, "version": job["version"],
+        "media": _media_flags(job), **stages.public(job),
     }
 
 
@@ -150,7 +168,7 @@ def clips_start():
             except Exception as e:  # noqa: BLE001 — shown to the user as is
                 flash(f"Couldn't start live clipping: {e}", "error")
                 return redirect("/app")
-            flash("That's a live stream, so Recaply is watching it and will clip the big moments as they happen.", "ok")
+            flash("That's a live stream, so Clipforge is watching it and will clip the big moments as they happen.", "ok")
             return redirect("/live")
     jid = _start(text, opts, title=os.path.basename(text) if not looks_like_url(text) else "")
     return redirect(f"/clipjob/{jid}")
@@ -183,11 +201,11 @@ def clips_upload():
     return jsonify({"id": jid})
 
 
-@bp.route("/clipjob/<job_id>")
-def clipjob_page(job_id):
-    job = _owned(job_id)
-    return render_template("clipjob.html", job=view(job), job_json=json.dumps(view(job)),
-                           profiles=profile_choices(), shorts=short_choices())
+@bp.route("/api/clips/health")
+def clips_health():
+    """Is the local AI ready and is the job queue up? (the dashboard shows the hint when not)"""
+    st = ai_status()                 # "llm" is the provider that will be asked first; "order" the whole fallback chain
+    return jsonify({"llm": st["provider"], "llm_order": st["order"], "ollama": st["ollama"], "queue": queue_info()})
 
 
 @bp.route("/api/clipjob/<job_id>")
@@ -266,6 +284,16 @@ def clipjob_shorts(job_id):
     if not ids:
         return jsonify({"error": "Pick at least one clip."}), 400
     opts = asdict(ShortOptions.from_dict(body.get("options")))      # unknown values fall back to defaults
+    trim = None
+    if body.get("trim") is not None:                                 # new cut points for a single clip
+        total = float(((job.get("result") or {}).get("source") or {}).get("duration") or 0)
+        try:
+            ts, te = float(body["trim"]["start"]), float(body["trim"]["end"])
+        except (TypeError, ValueError, KeyError):
+            return jsonify({"error": "bad request"}), 400
+        if len(ids) != 1 or not (0 <= ts < te) or te - ts < 2 or te - ts > 600 or (total and te > total + 0.5):
+            return jsonify({"error": "Pick a start and an end between 2 and 600 seconds apart, inside the video."}), 400
+        trim = {"id": ids[0], "start": ts, "end": te}
     # a short is its clip, finished: it counts once against the plan, like the cut
     ok, info = auth.charge([f"clip:{job_id}:{i}" for i in ids])
     if not ok:
@@ -274,9 +302,34 @@ def clipjob_shorts(job_id):
     ent = auth.ent() or {}
     for i in ids:
         store.set_cut(job_id, runner.short_key(i), {"state": "queued"})
-    store.update(job_id, task_args={"ids": ids, "options": opts, "watermark": bool(ent.get("watermark"))})
+    store.update(job_id, task_args={"ids": ids, "options": opts, "watermark": bool(ent.get("watermark")), "trim": trim})
     get_queue().submit(job_id, "shorts", ent.get("priority", 0), refund=auth.refunder())
     return jsonify({"ok": True, "queued": len(ids), "watermark": bool(ent.get("watermark"))})
+
+
+@bp.route("/api/clipjob/<job_id>/preview", methods=["POST"])
+def clipjob_preview(job_id):
+    """A free 5-second, low-resolution preview of one clip with the chosen crop and captions (optionally from
+    other start / end times). Nothing is charged; the result appears as cuts["p<clip id>"] (file, state)."""
+    job = _owned(job_id)
+    if job["state"] in ("queued", "running"):
+        return jsonify({"error": "This job is still working. Try again when it's done."}), 409
+    body = request.get_json(force=True, silent=True) or {}
+    clips = {c["id"]: c for c in ((job.get("result") or {}).get("clips") or [])}
+    try:
+        cid = int(body.get("id"))
+        start = float(body["start"]) if body.get("start") is not None else None
+        end = float(body["end"]) if body.get("end") is not None else None
+    except (TypeError, ValueError):
+        return jsonify({"error": "bad request"}), 400
+    if cid not in clips:
+        return jsonify({"error": "That clip isn't in this project."}), 404
+    opts = asdict(ShortOptions.from_dict(body.get("options")))
+    store.set_cut(job_id, runner.preview_key(cid), {"state": "queued", "error": None})
+    store.update(job_id, task_args={"id": cid, "options": opts, "start": start, "end": end})
+    ent = auth.ent() or {}
+    get_queue().submit(job_id, "preview", ent.get("priority", 0))
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/brand", methods=["GET", "POST"])
@@ -358,7 +411,7 @@ def clipjob_delete(job_id):
 @bp.route("/clipjob/<job_id>/file/<name>")
 def clipjob_file(job_id, name):
     job = _owned(job_id)
-    files = {c.get("file") for c in (job.get("cuts") or {}).values()}
+    files = {f for c in (job.get("cuts") or {}).values() for f in (c.get("file"), c.get("ass")) if f}
     if not FILE_NAME.match(name or "") or name not in files:
         abort(404)
     return send_from_directory(job_dir(job_id), name, as_attachment=request.args.get("dl") == "1",

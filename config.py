@@ -2,7 +2,7 @@
 config.py — settings shared by every module, read once from environment
 variables (see .env.example) so the same code runs locally and on a server.
 
-Recaply runs in one of two roles:
+Clipforge runs in one of two roles:
   * desktop (desktop.py): the Windows app. Recaps, clips, reels and the editor
     run on the user's own PC; accounts and plans come from the online service.
   * cloud (cloud.py): the online service: the website, accounts, plans,

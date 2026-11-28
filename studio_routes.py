@@ -69,15 +69,6 @@ def _when(raw) -> float:
 
 # ---------- transcript editor ----------
 
-@bp.route("/clipjob/<job_id>/edit/<int:cid>")
-def edit_page(job_id, cid):
-    job = clip_routes._owned(job_id)
-    clip = _clip(job, cid)
-    return render_template("edit.html", job=clip_routes.view(job), clip=clip, cid=cid, desktop=DESKTOP,
-                           shorts=clip_routes.short_choices(),
-                           languages=[{"key": k, "label": v} for k, v in tr.LANGUAGES.items()])
-
-
 @bp.route("/api/clipjob/<job_id>/clip/<int:cid>/words")
 def clip_words(job_id, cid):
     job = clip_routes._owned(job_id)
@@ -93,6 +84,60 @@ def clip_words(job_id, cid):
     return jsonify(words=numbered, fillers=tx.filler_ids(words), duration=clip["duration"],
                    cut=(cuts.get(str(cid)) or {}).get("file"), edit=cuts.get(runner.edit_key(cid)),
                    short=cuts.get(runner.short_key(cid)))
+
+
+@bp.route("/api/clipjob/<job_id>/clip/<int:cid>/layout")
+def clip_layout(job_id, cid):
+    """
+    Where the facecam, gameplay, face and action are in this clip's cut file,
+    so the Director previews every layout the way the export will draw it.
+    Measured once per cut file (~10 s) and kept next to it.
+    """
+    import json
+    import os
+
+    import editor
+    from recaply.render import reframe
+    job = clip_routes._owned(job_id)
+    _clip(job, cid)
+    cut = (job.get("cuts") or {}).get(str(cid)) or {}
+    if cut.get("state") != "done" or not cut.get("file"):
+        return jsonify(error="Cut this clip first: the layout is found from its picture."), 409
+    path = os.path.join(runner.job_dir(job_id), cut["file"])
+    if not os.path.isfile(path):
+        return jsonify(error="The cut file is gone. Cut the clip again."), 404
+    cache = path + ".layout2.json"                # bump when analyse() returns new fields
+    if os.path.isfile(cache) and os.path.getmtime(cache) >= os.path.getmtime(path):
+        try:
+            with open(cache, encoding="utf-8") as f:
+                return jsonify(json.load(f))
+        except (OSError, ValueError):
+            pass
+    meta = editor.probe(path)
+    if not meta.get("video"):
+        return jsonify(error="This clip has no picture."), 422
+    info = {**reframe.analyse(path, meta), "w": meta["w"], "h": meta["h"]}
+    profile = ((job.get("result") or {}).get("profile") or {}).get("key")
+    from recaply.profiles.base import get_profile
+    try:
+        pref = get_profile(profile).reframe if profile else "face"
+    except Exception:  # noqa: BLE001
+        pref = "face"
+    # what "auto" will pick on export (same order as reframe.choose)
+    if info["cam"]:
+        info["auto"] = "split"
+    elif pref in reframe.CAM_LAYOUTS:
+        info["auto"] = "action"
+    elif pref == "face":
+        info["auto"] = "face" if info["face_keys"] else "fit"
+    else:
+        info["auto"] = pref if pref in reframe.STRATEGIES else "fit"
+    try:
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump(info, f)
+    except OSError:
+        pass
+    return jsonify(info)
 
 
 @bp.route("/api/clipjob/<job_id>/clip/<int:cid>/edit", methods=["POST"])
@@ -221,11 +266,6 @@ def _queue_jobs() -> list[dict]:
     return out
 
 
-@bp.route("/queue")
-def queue_page():
-    return render_template("queue.html", desktop=DESKTOP, profiles=clip_routes.profile_choices())
-
-
 @bp.route("/api/queue")
 def queue_state():
     jobs = _queue_jobs()
@@ -266,11 +306,6 @@ def queue_cancel(job_id):
 
 # ---------- usage ----------
 
-@bp.route("/usage")
-def usage_page():
-    return render_template("usage.html", desktop=DESKTOP)
-
-
 @bp.route("/api/usage")
 def usage_state():
     try:
@@ -284,9 +319,8 @@ def usage_state():
 
 
 def start_publish_scheduler() -> None:
-    """Called once at start-up (Windows app): uploads scheduled items when they come due."""
-    if DESKTOP:
-        try:
-            pq.start_scheduler()
-        except Exception:  # noqa: BLE001 — never block the app from opening
-            pass
+    """Called once at start-up: uploads scheduled items (and Social hub posts) when they come due."""
+    try:
+        pq.start_scheduler()
+    except Exception:  # noqa: BLE001 — never block the app from opening
+        pass

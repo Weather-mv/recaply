@@ -195,10 +195,7 @@ def job_with_clip(owner=5):
 def test_editor_page_words_and_edit_request(client, monkeypatch):
     from recaply import engine
     jid = job_with_clip()
-    page = client.get(f"/clipjob/{jid}/edit/0")
-    assert page.status_code == 200 and b"Big play" in page.data and b"Render edit" in page.data
-    assert client.get(f"/clipjob/{jid}/edit/9").status_code == 404
-    assert client.get(f"/clipjob/{job_with_clip(owner=6)}/edit/0").status_code == 404           # someone else's job
+    assert client.get(f"/api/clipjob/{job_with_clip(owner=6)}/clip/0/words").status_code == 404   # someone else's job
     words = [{"w": "um", "s": 0.5, "e": 0.8}, {"w": "hello", "s": 1.0, "e": 1.4}]
     monkeypatch.setattr(engine, "clip_words", lambda r, c, tel=None: words)
     d = client.get(f"/api/clipjob/{jid}/clip/0/words").get_json()
@@ -287,7 +284,5 @@ def test_queue_batch_and_usage_routes(client):
     store.update(job["id"], state="failed", error="x")
     assert client.post("/api/queue/retry-failed").get_json()["jobs"] == [job["id"]]
     assert client.post(f"/api/queue/{job['id']}/cancel").get_json()["ok"]
-    assert client.get("/queue").status_code == 200 and b"Add many videos" in client.get("/queue").data
     u = client.get("/api/usage?days=7").get_json()
     assert u["days"] == 7 and "totals" in u and "publish" in u
-    assert client.get("/usage").status_code == 200 and b"Time and cost" in client.get("/usage").data

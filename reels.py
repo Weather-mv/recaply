@@ -57,7 +57,7 @@ RANGES = {"zoom": (0.25, 3.0), "ox": (-1.0, 1.0), "oy": (-1.0, 1.0), "top": (0.2
 # up to six rows, right-aligned below the top edge.
 KILLFEED = (1180, 84, 740, 240)
 KF_WIDTH = 600                    # its width in the reel at size 100%
-WATERMARK = "Made with Recaply"
+WATERMARK = "Made with Clipforge"
 SPLIT_BASE = 900                  # source rows that fill the close-up at 100%
 STYLE_DEFAULTS = {"blur": 50, "bgop": 0.82, "tsize": 72, "ty": 0.1, "vol": 1.0}
 STYLE_RANGES = {"blur": (0, 100), "bgop": (0.0, 1.0), "tsize": (36, 150), "ty": (0.0, 1.0), "vol": (0.0, 1.0)}

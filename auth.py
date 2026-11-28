@@ -271,7 +271,7 @@ def signup():
                 error = str(e)
             else:
                 login_session(user)
-                flash("Welcome to Recaply! Your 5-day free trial has started.", "ok")
+                flash("Welcome to Clipforge! Your 5-day free trial has started.", "ok")
                 return redirect(url_for("auth.pricing", pick=plan) if plan else url_for("app_home"))
     return render_template("auth.html", mode="signup", error=error, form=form, plan=plan), (400 if error else 200)
 

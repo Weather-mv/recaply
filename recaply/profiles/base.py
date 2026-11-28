@@ -35,7 +35,7 @@ class Profile:
     clip_target: float = 35.0
     window_pre: float = 40.0                  # shortlist window before a signal peak (s)
     window_post: float = 25.0                 # ...and after it
-    transcribe_all: bool = False              # talk content: transcribe everything, then pre-filter on text
+    transcribe_all: bool = False              # talk content: sample short probes + energy peaks, transcribe those first, then only the best windows in full
     reframe: str = "center"                   # default 9:16 strategy (Phase 2)
     detectors: tuple[str, ...] = ()           # optional detector plugins (e.g. "valorant_killfeed")
     segmenter: str | None = None              # replaces generic windows (e.g. "valorant_rounds")

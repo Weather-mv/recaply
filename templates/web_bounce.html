@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Recaply</title>
+<title>Clipforge</title>
 {% if target %}<meta http-equiv="refresh" content="0;url={{ target }}">{% endif %}
 {% include "_theme.html" %}
 <style>
@@ -19,11 +19,11 @@
 <body>
 <div class="c">
   {% if error %}
-    <h1>Couldn't open Recaply</h1>
+    <h1>Couldn't open Clipforge</h1>
     <p>{{ error }}</p>
     <a class="btn lg" href="{{ website }}">Back to the website</a>
   {% else %}
-    <h1>Opening Recaply…</h1>
+    <h1>Opening Clipforge…</h1>
     <div class="bar"><i></i></div>
     <script>location.replace({{ target|tojson }});</script>
   {% endif %}

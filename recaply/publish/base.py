@@ -20,12 +20,16 @@ class Post:
     description: str = ""
     tags: list[str] = field(default_factory=list)
     privacy: str = "public"         # public | unlisted | private
+    account_id: int | None = None   # a connected social account (None = the old single YouTube sign-in)
+    thumbnail: str | None = None    # path of a cover image, where the network takes one
+    thumb_at: float | None = None   # seconds into the video for the cover frame (Instagram)
 
 
 @dataclass
 class Result:
     id: str
     url: str
+    note: str = ""                  # something the user should know although it worked (e.g. no thumbnail)
 
 
 class Publisher:

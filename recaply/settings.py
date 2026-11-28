@@ -47,12 +47,14 @@ class Prices:
         "gemini": _float("RECAPLY_PRICE_GEMINI_IN", 0.30),
         "anthropic": _float("RECAPLY_PRICE_ANTHROPIC_IN", 1.00),
         "openai": _float("RECAPLY_PRICE_OPENAI_IN", 0.25),
+        "groq": _float("RECAPLY_PRICE_GROQ_IN", 0.59),
         "ollama": 0.0,
     })
     llm_out: dict = field(default_factory=lambda: {
         "gemini": _float("RECAPLY_PRICE_GEMINI_OUT", 2.50),
         "anthropic": _float("RECAPLY_PRICE_ANTHROPIC_OUT", 5.00),
         "openai": _float("RECAPLY_PRICE_OPENAI_OUT", 2.00),
+        "groq": _float("RECAPLY_PRICE_GROQ_OUT", 0.79),
         "ollama": 0.0,
     })
     audio_hour: dict = field(default_factory=lambda: {
@@ -69,25 +71,55 @@ class Settings:
     cache_dir: str = field(default_factory=lambda: _str("RECAPLY_CACHE_DIR", os.path.join(CLIPS_DIR, "_cache")))
     jobs_db: str = field(default_factory=lambda: os.path.join(CLIPS_DIR, "_clipjobs.db"))
 
-    # transcription: faster-whisper (local) | groq | openai | none
-    transcriber: str = field(default_factory=lambda: _str("RECAPLY_TRANSCRIBER", "faster-whisper").lower())
+    # transcription: groq (default; falls back to local when there's no key or Groq keeps rate-limiting)
+    # | local (faster-whisper) | openai | none.  TRANSCRIPTION_PROVIDER is the preferred name.
+    transcriber: str = field(default_factory=lambda: (
+        _str("TRANSCRIPTION_PROVIDER") or _str("RECAPLY_TRANSCRIBER", "groq")).lower())
+    groq_parallel: int = field(default_factory=lambda: _int("RECAPLY_GROQ_PARALLEL", 6))
+    groq_retries: int = field(default_factory=lambda: _int("RECAPLY_GROQ_RETRIES", 4))   # 429 backoff: 2, 4, 8, 16 s
     whisper_model_gpu: str = field(default_factory=lambda: _str("RECAPLY_FUNNEL_MODEL_GPU", "large-v3-turbo"))
     whisper_model_cpu: str = field(default_factory=lambda: _str("RECAPLY_FUNNEL_MODEL_CPU", "small"))
     whisper_device: str = field(default_factory=lambda: _str("RECAPLY_WHISPER_DEVICE", "auto"))
     groq_api_key: str = field(default_factory=lambda: _str("GROQ_API_KEY"), repr=False)
-    groq_model: str = field(default_factory=lambda: _str("RECAPLY_GROQ_MODEL", "whisper-large-v3-turbo"))
+    groq_model: str = field(default_factory=lambda: _str("RECAPLY_GROQ_MODEL", "whisper-large-v3"))
     openai_api_key: str = field(default_factory=lambda: _str("OPENAI_API_KEY"), repr=False)
     openai_whisper_model: str = field(default_factory=lambda: _str("RECAPLY_OPENAI_WHISPER_MODEL", "whisper-1"))
 
-    # LLM scoring and copy: gemini | anthropic | openai | ollama | none
-    llm_provider: str = field(default_factory=lambda: _str("RECAPLY_LLM", "gemini").lower())
+    # LLM scoring and copy: auto (default) | groq | gemini | anthropic | openai | ollama | none.
+    # Every usable provider is tried in turn (recaply.providers.llm.LLMChain); a named one goes first.
+    # auto order: Groq -> Gemini -> Claude -> OpenAI (with a key) -> Ollama (when running) -> rules.
+    llm_provider: str = field(default_factory=lambda: _str("RECAPLY_LLM", "auto").lower())
+    llm_order: str = field(default_factory=lambda: _str("RECAPLY_LLM_ORDER"))       # e.g. "ollama,groq"
+    groq_llm_model: str = field(default_factory=lambda: _str("RECAPLY_GROQ_LLM_MODEL", "llama-3.3-70b-versatile"))
     gemini_api_key: str = field(default_factory=lambda: _str("GEMINI_API_KEY") or _str("GOOGLE_API_KEY"), repr=False)
     gemini_model: str = field(default_factory=lambda: _str("RECAPLY_GEMINI_MODEL", "gemini-flash-latest"))
     anthropic_api_key: str = field(default_factory=lambda: _str("ANTHROPIC_API_KEY"), repr=False)
     anthropic_model: str = field(default_factory=lambda: _str("RECAPLY_ANTHROPIC_MODEL", "claude-haiku-5-5"))
     openai_model: str = field(default_factory=lambda: _str("RECAPLY_OPENAI_MODEL", "gpt-5-mini"))
     ollama_url: str = field(default_factory=lambda: _str("OLLAMA_URL", "http://127.0.0.1:11434"))
-    ollama_model: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_MODEL", "llama3.1"))
+    # a 3-4B model fits a 4 GB GPU next to Whisper; bigger machines can set llama3.1:8b, qwen2.5:7b...
+    ollama_model: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_MODEL", "qwen2.5:3b-instruct"))
+    ollama_ctx: int = field(default_factory=lambda: _int("RECAPLY_OLLAMA_CTX", 8192))
+    ollama_keep_alive: str = field(default_factory=lambda: _str("RECAPLY_OLLAMA_KEEP_ALIVE", "5m"))
+    ollama_timeout: int = field(default_factory=lambda: _int("RECAPLY_OLLAMA_TIMEOUT", 600))
+
+    # speech-heavy videos (talks, podcasts): transcribe a `talk_probe_len` s probe every `talk_probe_every` s
+    # (default 30 s per 2 min = 25% of the audio), then only the best windows in full. Never the whole video.
+    talk_probe_every: int = field(default_factory=lambda: _int("RECAPLY_TALK_PROBE_EVERY", 120))
+    talk_max_share: float = field(default_factory=lambda: float(_str("RECAPLY_TALK_MAX_SHARE", "0.4") or 0.5))   # hard cap on audio transcribed
+    talk_probe_len: int = field(default_factory=lambda: _int("RECAPLY_TALK_PROBE_LEN", 30))
+
+    # story beats: a second LLM pass labels each shortlisted moment hook/setup/build/payoff/...
+    story_beats: bool = field(default_factory=lambda: _flag("RECAPLY_BEATS", True))
+    beat_chunk_words: int = field(default_factory=lambda: _int("RECAPLY_BEAT_CHUNK_WORDS", 350))
+    beat_overlap_words: int = field(default_factory=lambda: _int("RECAPLY_BEAT_OVERLAP_WORDS", 50))
+
+    # hook check: the AI rates each clip's first 3 s (words + first frame); weak openers are dropped
+    hook_check: bool = field(default_factory=lambda: _flag("RECAPLY_HOOK_CHECK", True))
+    hook_min: int = field(default_factory=lambda: _int("RECAPLY_HOOK_MIN", 6))           # 1-10; below it a clip is dropped
+    hook_top: int = field(default_factory=lambda: _int("RECAPLY_HOOK_TOP", 18))          # clips rated (best first)
+    # a local vision model in Ollama that describes each clip's first frame ("" = describe it with OpenCV)
+    vision_model: str = field(default_factory=lambda: _str("RECAPLY_VISION_MODEL", "moondream"))
 
     # signals (Phase 3)
     motion_for_links: bool = field(default_factory=lambda: _flag("RECAPLY_MOTION_LINKS", True))   # read a small video stream for motion
@@ -111,11 +143,16 @@ class Settings:
     def llm_ready(self) -> bool:
         """True when the configured LLM provider can be called."""
         p = self.llm_provider
-        return ((p == "gemini" and bool(self.gemini_api_key))
+        return (p == "auto"
+                or (p == "groq" and bool(self.groq_api_key))
+                or (p == "gemini" and bool(self.gemini_api_key))
                 or (p == "anthropic" and bool(self.anthropic_api_key))
                 or (p == "openai" and bool(self.openai_api_key))
                 or p == "ollama")
 
 
+from recaply import user_settings as _user_settings  # noqa: E402
+
+_user_settings.load_into_environment()        # keys saved from the studio's Settings page win over .env
 settings = Settings()
 os.makedirs(settings.cache_dir, exist_ok=True)

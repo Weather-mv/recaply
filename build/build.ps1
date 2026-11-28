@@ -1,9 +1,11 @@
 <#
-  Builds the Recaply Windows app and its installer.
+  Builds the Clipforge Windows app and its installer.
 
     powershell -ExecutionPolicy Bypass -File build\build.ps1 -CloudUrl https://recaply.example.com
 
   -CloudUrl   the online service the app signs in to (default: http://127.0.0.1:8000 for testing)
+  -WithCuda   bundle the CUDA 12 cuBLAS / cuDNN DLLs (pip install -r requirements-gpu.txt first; ~2 GB)
+              so installed copies transcribe on NVIDIA GPUs instead of the CPU
   -NoInstaller  stop after the app folder (dist\Recaply)
 
   Needs: the project's .venv (with requirements + pyinstaller + pywebview),
@@ -13,7 +15,8 @@
 #>
 param(
   [string]$CloudUrl = "http://127.0.0.1:8000",
-  [switch]$NoInstaller
+  [switch]$NoInstaller,
+  [switch]$WithCuda          # bundle the CUDA cuBLAS / cuDNN DLLs (about 2 GB) so speech-to-text runs on NVIDIA GPUs
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"      # PowerShell 5's progress bar makes downloads crawl
@@ -27,7 +30,7 @@ $FfmpegZip = "ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip"
 $FfmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FfmpegZip"
 
 $Version = (Select-String -Path (Join-Path $Root "config.py") -Pattern '^VERSION = "([\d.]+)"').Matches[0].Groups[1].Value
-Write-Host "Building Recaply $Version (online service: $CloudUrl)"
+Write-Host "Building Clipforge $Version (online service: $CloudUrl)"
 
 # ---- bundled tools: ffmpeg + ffprobe (shared build) and node (for YouTube's player challenge) ----
 New-Item -ItemType Directory -Force (Join-Path $Stage "bin"), $Cache | Out-Null
@@ -51,8 +54,8 @@ $v = ($Version.Split(".") + @("0", "0", "0"))[0..3] -join ", "
 VSVersionInfo(
   ffi=FixedFileInfo(filevers=($v), prodvers=($v)),
   kids=[StringFileInfo([StringTable('040904B0', [
-    StringStruct('CompanyName', 'Recaply'), StringStruct('FileDescription', 'Recaply'),
-    StringStruct('FileVersion', '$Version'), StringStruct('ProductName', 'Recaply'),
+    StringStruct('CompanyName', 'Clipforge'), StringStruct('FileDescription', 'Clipforge'),
+    StringStruct('FileVersion', '$Version'), StringStruct('ProductName', 'Clipforge'),
     StringStruct('ProductVersion', '$Version'), StringStruct('OriginalFilename', 'Recaply.exe')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])]
 )
@@ -60,6 +63,7 @@ VSVersionInfo(
 & $Py (Join-Path $Build "make_icon.py") (Join-Path $Build "recaply.ico") | Out-Null
 
 # ---- the app folder ----
+if ($WithCuda) { $env:RECAPLY_BUNDLE_CUDA = "1" } else { Remove-Item Env:RECAPLY_BUNDLE_CUDA -ErrorAction SilentlyContinue }
 & $Py -m PyInstaller --noconfirm --clean --log-level WARN --distpath $Dist --workpath (Join-Path $Build "work") (Join-Path $Build "recaply.spec")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 $App = Join-Path $Dist "Recaply"

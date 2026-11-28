@@ -1,6 +1,7 @@
 """
 Score the shortlist: the LLM reads each window's transcript (with absolute
-timestamps) plus what the signals saw, and returns a 0-100 virality score,
+timestamps) plus what the signals saw, and returns four 0-10 scores (hook,
+engagement, value, shareability; combined in code into a 0-100 overall_virality),
 the best self-contained start/end inside the window, a one-line reason, a
 title, a 3-second hook, a post description, hashtags and a few words worth
 emphasising in the captions. Windows go in batches of 12, in parallel.
@@ -26,6 +27,7 @@ from recaply.telemetry import Telemetry
 
 log = get_logger("rerank")
 BATCH = 12
+BATCH_LOCAL = 3        # a 3-4B local model reads far less at once than a cloud model
 MAX_TAGS = 5
 
 SYSTEM = ("You are an expert short-form video editor. You pick the moments from long videos that will "
@@ -103,9 +105,13 @@ def build_prompt(windows: list[tuple[int, Window]], profile: Profile, title: str
         "",
         "For EVERY candidate return an object with:",
         '- "id": the candidate id',
-        '- "score": 0-100 viral potential (strong hook in the first 3 seconds, clear payoff, makes sense '
-        "without context, emotion / humour / surprise / insight, shareable). Be strict: most moments "
-        "deserve 30-70; reserve 85+ for exceptional ones.",
+        "- four scores from 0 to 10 (decimals allowed). Be strict: most moments deserve 3-7; reserve 9+ "
+        "for exceptional ones:",
+        '  - "hook_score": do the first 3 seconds grab attention instantly?',
+        '  - "engagement_score": does it keep the viewer watching to the end (build-up, tension, pace)?',
+        '  - "value_score": is it funny, insightful, surprising or shocking, and does it make sense without context?',
+        '  - "shareability_score": would someone send this to a friend or repost it?',
+        '- "overall_virality": 0-100, your overall verdict on how well it will perform as a short',
         '- "start", "end": absolute seconds of the best self-contained part inside the window, within the '
         "length range. Start at the start of a sentence (or just before the action), end right after the "
         "payoff. Never cut mid-sentence.",
@@ -119,6 +125,46 @@ def build_prompt(windows: list[tuple[int, Window]], profile: Profile, title: str
         'Reply as {"clips": [ ... ]}.',
     ]
     return "\n".join(parts)
+
+
+AXES = ("hook_score", "engagement_score", "value_score", "shareability_score")
+AXIS_WEIGHTS = {"hook_score": 0.30, "engagement_score": 0.25, "value_score": 0.25, "shareability_score": 0.20}
+
+
+def _num(v, lo: float, hi: float) -> float | None:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return max(lo, min(hi, x)) if x == x else None        # NaN -> None
+
+
+def virality(item: dict) -> dict | None:
+    """
+    The 4-axis virality score from a model's reply, re-checked in code:
+    each axis clamped to 0-10, and overall_virality = the weighted axes
+    (hook 30%, engagement 25%, value 25%, shareability 20%) x 10, averaged
+    with the model's own overall verdict when it gave one that is close
+    (a verdict far from its own axes is ignored, so the number can't be made up).
+    Old-style replies with only "score" (0-100) get no axes: None.
+    """
+    axes = {k: _num(item.get(k), 0.0, 10.0) for k in AXES}
+    if any(v is None for v in axes.values()):
+        return None
+    computed = 10.0 * sum(AXIS_WEIGHTS[k] * v for k, v in axes.items())   # type: ignore[operator]
+    stated = _num(item.get("overall_virality"), 0.0, 100.0)
+    overall = (computed + stated) / 2 if stated is not None and abs(stated - computed) <= 15 else computed
+    return {**{k: round(v, 1) for k, v in axes.items()}, "overall_virality": round(overall, 1)}   # type: ignore[arg-type]
+
+
+def heuristic_virality(w: Window, score: float, hook_strength: float) -> dict:
+    """The same four axes without an LLM, from what the signals and the transcript show. overall = the rule score."""
+    sig, txt = w.signal_score, (w.text_score if w.words else w.signal_score)
+    axes = {"hook_score": 10 * (0.5 * hook_strength + 0.3 * sig + 0.2 * txt),
+            "engagement_score": 10 * (0.7 * sig + 0.3 * txt),
+            "value_score": 10 * (0.4 * sig + 0.6 * txt),
+            "shareability_score": 10 * (0.5 * sig + 0.5 * txt)}
+    return {**{k: round(max(0.0, min(10.0, v)), 1) for k, v in axes.items()}, "overall_virality": round(score, 1)}
 
 
 def _llm_batch(llm: LLM, batch: list[tuple[int, Window]], profile: Profile, title: str,
@@ -176,7 +222,9 @@ def heuristic(w: Window, profile: Profile) -> dict:
     reason = f"{_signal_note(w)} around {fmt_hms(w.peak)}"
     if w.text_score >= 0.4:
         reason += "; lively speech"
+    hook_strength = max(w.signals.values(), default=w.signal_score) if w.signals else w.signal_score
     return {"score": round(score, 1), "start": start, "end": end, "reason": reason,
+            "virality": heuristic_virality(w, score, float(hook_strength)),
             "title": title or f"Moment at {fmt_hms(w.peak)}", "hook": "", "description": "",
             "hashtags": clean_tags([], (profile.kind if profile.kind != "talk" else "podcast", "shorts")),
             "emphasis": []}
@@ -194,7 +242,8 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
     used = "heuristic"
     if llm is not None and windows:
         indexed = list(enumerate(windows))
-        batches = [indexed[i:i + BATCH] for i in range(0, len(indexed), BATCH)]
+        size = BATCH_LOCAL if llm.provider == "ollama" else BATCH
+        batches = [indexed[i:i + size] for i in range(0, len(indexed), size)]
         failed = 0
 
         def run(batch):
@@ -204,7 +253,7 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
                 log.warning("llm batch failed, using heuristic", provider=llm.provider, error=str(e)[:200])
                 return None
 
-        with ThreadPoolExecutor(min(3, len(batches))) as ex:
+        with ThreadPoolExecutor(1 if llm.provider == "ollama" else min(3, len(batches))) as ex:
             outs = list(ex.map(run, batches))
         llm_w = min(0.9, 0.5 + 0.4 * profile.weights.get("transcript", 0.0))
         for batch, out in zip(batches, outs):
@@ -215,8 +264,10 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
                 it = out.get(i)
                 if not it:
                     continue
+                vir = virality(it)
                 try:
-                    ls = max(0.0, min(100.0, float(it.get("score", 0))))
+                    ls = vir["overall_virality"] if vir else max(0.0, min(100.0, float(
+                        it.get("overall_virality", it.get("score", 0)))))
                     s = float(it.get("start", w.start))
                     e = float(it.get("end", w.end))
                 except (TypeError, ValueError):
@@ -225,7 +276,7 @@ def rerank(windows: list[Window], profile: Profile, title: str, llm: LLM | None,
                 e = min(max(e, s + 1), w.end + 5)
                 results[i] = {
                     "score": round(llm_w * ls + (1 - llm_w) * 100 * w.signal_score, 1),
-                    "llm_score": round(ls, 1), "start": s, "end": e,
+                    "llm_score": round(ls, 1), "start": s, "end": e, "virality": vir,
                     "reason": str(it.get("reason") or "")[:200],
                     "title": str(it.get("title") or "")[:80],
                     "hook": str(it.get("hook") or "")[:60],

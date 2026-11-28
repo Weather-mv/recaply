@@ -20,6 +20,7 @@ import numpy as np
 from recaply.profiles.base import Profile
 from recaply.signals.base import smooth
 
+BLOCK_SEC = 30.0
 LAUGH = re.compile(r"\b(ha(ha)+|lol|lmao|laugh\w*)\b|\[laugh", re.IGNORECASE)
 
 
@@ -32,6 +33,7 @@ class Window:
     text_score: float = 0.0                   # 0..1 from the transcript (0 until transcribed)
     words: list = field(default_factory=list)
     signals: dict = field(default_factory=dict)   # per-signal peak values, for reasons
+    probe: tuple | None = None                # speech-heavy funnel: the short span transcribed first
 
     @property
     def length(self) -> float:
@@ -103,6 +105,25 @@ def sliding_windows(fused: np.ndarray, profile: Profile, duration: float) -> lis
         if e >= total:
             break
         t += step
+    return out
+
+
+def probe_windows(fused: np.ndarray, profile: Profile, duration: float, every: float, length: float) -> list[Window]:
+    """Cheap even sampling for speech-heavy videos where loudness says little: a short probe every
+    `every` seconds. Each Window spans a full clip window around the probe; `probe` is the part that
+    gets transcribed first."""
+    out: list[Window] = []
+    total = duration or len(fused)
+    c = every / 2
+    while c < total:
+        p0 = float(int(c // BLOCK_SEC) * BLOCK_SEC)          # snap to one 30 s transcription block: one block per probe
+        p1 = min(total, p0 + max(length, BLOCK_SEC))
+        s, e = max(0.0, c - profile.window_pre), min(total, c + profile.window_post)
+        w = Window(start=float(s), end=float(e), peak=float(c),
+                   signal_score=window_signal_score(fused, s, e) if len(fused) else 0.0)
+        w.probe = (p0, p1)
+        out.append(w)
+        c += every
     return out
 
 

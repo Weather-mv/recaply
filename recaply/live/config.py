@@ -36,7 +36,8 @@ class ChannelConfig:
     cooldown: float = 60.0           # no second clip within this many seconds of the last one
     warmup: float = 120.0            # learn the stream's normal level for this long first
     segment_sec: int = 300           # rolling buffer segment length
-    retention_min: int = 45          # how much of the stream stays on disk
+    retention_min: int = 45          # how much of the stream stays on disk (by time)...
+    max_buffer_mb: int = 4096        # ...and by size: the oldest segments go first when the buffer gets bigger
     count: int = 3                   # clips the pipeline keeps from each captured moment
     auto_shorts: bool = False        # also render the best one as a finished short
     transcriber: str | None = None
@@ -61,7 +62,7 @@ class ChannelConfig:
 
 
 _NUM = {"pre": (5, 120), "post": (5, 60), "threshold": (0.15, 0.95), "cooldown": (10, 1800),
-        "warmup": (30, 1800), "segment_sec": (5, 600), "retention_min": (5, 360), "count": (1, 10),
+        "warmup": (30, 1800), "segment_sec": (5, 600), "retention_min": (5, 360), "max_buffer_mb": (200, 102400), "count": (1, 10),
         "poll_sec": (10, 900), "end_grace": (10, 1800), "max_hours": (0, 48)}
 
 
