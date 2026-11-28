@@ -12,6 +12,7 @@ import Director from "@/pages/Director";
 import Editor from "@/pages/Editor";
 import Project from "@/pages/Project";
 import Settings from "@/pages/Settings";
+import Social from "@/pages/Social";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -23,6 +24,9 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/projects" element={<Projects />} />
           <Route path="/editor" element={<Editor />} />
           <Route path="/brand" element={<BrandKit />} />
+          <Route path="/social" element={<Social />} />
+          <Route path="/social/accounts" element={<Social />} />
+          <Route path="/social/compose" element={<Social />} />
           <Route path="/queue" element={<Queue />} />
           <Route path="/usage" element={<Usage />} />
           <Route path="/live" element={<Live />} />

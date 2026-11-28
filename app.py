@@ -18,6 +18,7 @@ import accounts
 import clip_routes
 import editor_routes
 import live_routes
+import social_routes
 import storage
 import studio_app
 import studio_routes
@@ -40,6 +41,7 @@ app.register_blueprint(clip_routes.bp)      # the any-video clip finder
 app.register_blueprint(live_routes.bp)      # live-stream mode (Windows app)
 app.register_blueprint(studio_routes.bp)    # editing, publishing, batch queue, usage
 app.register_blueprint(editor_routes.bp)     # the Editor: any video, one clip, all the Director's tools
+app.register_blueprint(social_routes.bp)      # the Social hub: accounts, captions, thumbnails, calendar
 app.register_blueprint(studio_app.bp)       # the React studio (static/studio) and its small API
 auth.init_app(app)
 

@@ -14,7 +14,7 @@ GZIP_TYPES = ("text/html", "application/json", "text/plain", "text/css", "text/j
 def csp(media="", connect=""):
     """Inline scripts and styles are part of the pages, so they stay allowed; everything
     else must come from this site (plus Google Fonts, YouTube thumbnails and players)."""
-    return ("default-src 'self'; img-src 'self' data: blob: https://i.ytimg.com https://static-cdn.jtvnw.net; "
+    return ("default-src 'self'; img-src 'self' data: blob: https://i.ytimg.com https://static-cdn.jtvnw.net https://yt3.ggpht.com https://*.googleusercontent.com https://media.licdn.com https://pbs.twimg.com https://*.cdninstagram.com https://*.fbcdn.net; "
             f"media-src 'self' blob: {media}; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; "
             f"script-src 'self' 'unsafe-inline'; connect-src 'self' {connect}; "

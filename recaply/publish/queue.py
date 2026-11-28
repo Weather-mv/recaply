@@ -23,7 +23,7 @@ from recaply.log import get_logger
 from recaply.publish.base import Post, PublishError
 
 log = get_logger("publish.queue")
-STATUSES = ("queued", "uploading", "done", "failed", "cancelled")
+STATUSES = ("draft", "queued", "uploading", "done", "failed", "cancelled")
 BACKOFF = (60, 300, 1800)
 MAX_TRIES = len(BACKOFF)
 _lock = threading.Lock()
@@ -48,6 +48,9 @@ create table if not exists publish_items (
 );
 create index if not exists publish_items_due on publish_items(status, run_at);
 """
+# Added for the Social hub (old databases get them on first use).
+_ADDED = (("account_id", "integer"), ("thumbnail", "text"), ("thumb_at", "real"), ("post_group", "text"),
+          ("owner", "text"), ("clip_id", "integer"))
 
 
 def _con() -> sqlite3.Connection:
@@ -55,9 +58,20 @@ def _con() -> sqlite3.Connection:
     con = store._db()
     if settings.jobs_db not in _ready:
         store.init()
-        con.executescript(SCHEMA)
+        migrate(con)
         _ready.add(settings.jobs_db)
     return con
+
+
+def migrate(con: sqlite3.Connection) -> None:
+    """Create the table, and add the columns newer versions use to a table made by an older one."""
+    con.executescript(SCHEMA)
+    have = {r[1] for r in con.execute("pragma table_info(publish_items)").fetchall()}
+    for col, typ in _ADDED:
+        if col not in have:
+            con.execute(f"alter table publish_items add column {col} {typ}")
+    con.execute("create index if not exists publish_items_group on publish_items(post_group)")
+    con.commit()
 
 
 def _row(r) -> dict:
@@ -77,20 +91,74 @@ def resolve_file(job_id: str, name: str) -> str:
     return path
 
 
+def resolve_image(job_id: str, name: str) -> str:
+    """Absolute path of a thumbnail inside the job's folder (jpg / png only)."""
+    from recaply.jobs.runner import job_dir
+    base = os.path.realpath(job_dir(job_id))
+    path = os.path.realpath(os.path.join(base, name))
+    if os.path.commonpath([base, path]) != base or not name.lower().endswith((".jpg", ".jpeg", ".png")):
+        raise PublishError("That thumbnail isn't part of the job.")
+    return path
+
+
 def enqueue(job_id: str, file: str, platform: str, title: str, description: str = "", tags: list[str] | None = None,
-            run_at: float | None = None, privacy: str = "public") -> int:
+            run_at: float | None = None, privacy: str = "public", account_id: int | None = None,
+            thumbnail: str | None = None, thumb_at: float | None = None, post_group: str | None = None,
+            owner=None, status: str = "queued", clip_id: int | None = None) -> int:
     if publish.get(platform) is None:
         raise PublishError(f"Unknown platform '{platform}'.")
+    if status not in ("queued", "draft"):
+        raise PublishError("A new item is either queued or a draft.")
     if not os.path.isfile(resolve_file(job_id, file)):
         raise PublishError("That file doesn't exist yet: make the short first.")
+    if thumbnail and not os.path.isfile(resolve_image(job_id, thumbnail)):
+        raise PublishError("That thumbnail doesn't exist.")
     now = time.time()
     with _lock, _con() as con:
         cur = con.execute("insert into publish_items (job_id, file, platform, title, description, tags, privacy, run_at,"
-                          " created, updated) values (?,?,?,?,?,?,?,?,?,?)",
+                          " created, updated, status, account_id, thumbnail, thumb_at, post_group, owner, clip_id)"
+                          " values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                           (job_id, file, platform, title.strip()[:200] or "Clip", description[:5000],
-                           json.dumps([str(t)[:60] for t in (tags or [])][:20]), privacy,
-                           float(run_at if run_at else now), now, now))
+                           json.dumps([str(t)[:60] for t in (tags or [])][:30]), privacy,
+                           float(run_at if run_at else now), now, now, status, account_id, thumbnail or None,
+                           thumb_at, post_group, owner, clip_id))
         return int(cur.lastrowid)
+
+
+def update(item_id: int, **f) -> bool:
+    """Edit an item that hasn't gone out yet (text, account, thumbnail, time, draft <-> queued)."""
+    allowed = {"title", "description", "tags", "privacy", "run_at", "account_id", "thumbnail", "thumb_at", "status"}
+    f = {k: v for k, v in f.items() if k in allowed}
+    if "status" in f and f["status"] not in ("queued", "draft"):
+        raise PublishError("An item can only be moved between draft and queued.")
+    if "tags" in f:
+        f["tags"] = json.dumps([str(t)[:60] for t in (f["tags"] or [])][:30])
+    if not f:
+        return False
+    f["updated"] = time.time()
+    with _lock, _con() as con:
+        return con.execute(f"update publish_items set {', '.join(k + '=?' for k in f)} where id=? and status in "
+                           "('draft','queued','failed','cancelled')", [*f.values(), int(item_id)]).rowcount > 0
+
+
+def delete(item_id: int) -> bool:
+    with _lock, _con() as con:
+        return con.execute("delete from publish_items where id=? and status in ('draft','queued','failed','cancelled')",
+                           (int(item_id),)).rowcount > 0
+
+
+def in_range(start: float, end: float, limit: int = 2000) -> list[dict]:
+    """Items due between two times, plus every draft (the calendar's side list)."""
+    with _lock, _con() as con:
+        rows = con.execute("select * from publish_items where (run_at between ? and ?) or status='draft' "
+                           "order by run_at, id limit ?", (float(start), float(end), int(limit))).fetchall()
+    return [_row(r) for r in rows]
+
+
+def group(post_group: str) -> list[dict]:
+    with _lock, _con() as con:
+        return [_row(r) for r in con.execute("select * from publish_items where post_group=? order by id",
+                                             (post_group,)).fetchall()]
 
 
 def list_items(status: str | None = None, limit: int = 200) -> list[dict]:
@@ -161,8 +229,11 @@ def process(item: dict) -> None:
         if pub is None:
             raise PublishError(f"Unknown platform '{item['platform']}'.")
         path = resolve_file(item["job_id"], item["file"])
-        res = pub.publish(Post(path, item["title"], item["description"], item["tags"], item["privacy"]))
-        _set(item["id"], status="done", result={"id": res.id, "url": res.url}, error=None, attempts=item["attempts"] + 1)
+        thumb = resolve_image(item["job_id"], item["thumbnail"]) if item.get("thumbnail") else None
+        res = pub.publish(Post(path, item["title"], item["description"], item["tags"], item["privacy"],
+                               account_id=item.get("account_id"), thumbnail=thumb, thumb_at=item.get("thumb_at")))
+        _set(item["id"], status="done", result={"id": res.id, "url": res.url, "note": res.note}, error=None,
+             attempts=item["attempts"] + 1)
         log.info("published", item=item["id"], platform=item["platform"], url=res.url)
     except PublishError as e:
         tries = item["attempts"] + 1

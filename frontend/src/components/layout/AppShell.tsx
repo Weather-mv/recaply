@@ -1,4 +1,4 @@
-import { BarChart3, ChevronRight, Clapperboard, Cpu, FolderKanban, ListTodo, Menu, Palette, Plus, Radio, Settings as Cog, Sparkles, Wand2, TriangleAlert, X, Zap } from "lucide-react";
+import { BarChart3, ChevronRight, Clapperboard, Cpu, FolderKanban, ListTodo, Megaphone, Menu, Palette, Plus, Radio, Settings as Cog, Sparkles, Wand2, TriangleAlert, X, Zap } from "lucide-react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { StatusDot } from "@/components/ui/viz";
@@ -16,13 +16,14 @@ const NAV = [
   { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/editor", label: "Editor", icon: Wand2 },
   { to: "/live", label: "Live Streams", icon: Radio },
+  { to: "/social", label: "Social", icon: Megaphone },
   { to: "/queue", label: "Queue", icon: ListTodo },
   { to: "/brand", label: "Brand Kit", icon: Palette },
   { to: "/usage", label: "Usage", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Cog },
 ];
 
-const ROOT_CRUMB: Record<string, string> = { "/": "Studio", "/projects": "Projects", "/editor": "Editor", "/live": "Live Streams", "/settings": "Settings", "/queue": "Queue", "/usage": "Usage", "/brand": "Brand Kit" };
+const ROOT_CRUMB: Record<string, string> = { "/": "Studio", "/projects": "Projects", "/editor": "Editor", "/live": "Live Streams", "/settings": "Settings", "/queue": "Queue", "/social": "Social", "/usage": "Usage", "/brand": "Brand Kit" };
 
 /** AI state for the sidebar and top bar: what answers, and whether the local model is up. */
 function useAi() {

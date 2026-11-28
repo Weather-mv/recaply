@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Loader2, Send } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Megaphone, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,10 @@ export function PublishPanel({ jobId, file, clip }: { jobId: string; file: strin
   return (
     <div className="space-y-3 rounded-lg border bg-white/[.03] p-3">
       <p className="flex items-center gap-2 text-sm font-semibold"><Send className="size-4 text-primary" /> Publish</p>
+      <Link to={`/social/compose?job=${encodeURIComponent(jobId)}&clip=${clip.id}&file=${encodeURIComponent(file)}`}
+        className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm font-medium text-primary ring-1 ring-inset ring-primary/25 hover:bg-primary/15">
+        <Megaphone className="size-4" /> Post to YouTube, LinkedIn, X or Instagram…
+      </Link>
       {ready.length ? (
         <>
           <Select value={platform} onChange={(e) => setPlatform(e.target.value)} aria-label="Platform">

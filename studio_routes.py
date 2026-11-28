@@ -319,9 +319,8 @@ def usage_state():
 
 
 def start_publish_scheduler() -> None:
-    """Called once at start-up (Windows app): uploads scheduled items when they come due."""
-    if DESKTOP:
-        try:
-            pq.start_scheduler()
-        except Exception:  # noqa: BLE001 — never block the app from opening
-            pass
+    """Called once at start-up: uploads scheduled items (and Social hub posts) when they come due."""
+    try:
+        pq.start_scheduler()
+    except Exception:  # noqa: BLE001 — never block the app from opening
+        pass

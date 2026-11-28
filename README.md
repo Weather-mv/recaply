@@ -298,14 +298,45 @@ and can be retried by hand.
   6 uploads a day, and videos uploaded by an API project that Google hasn't audited
   are locked to private until it is.
 - **Webhook** (`RECAPLY_PUBLISH_WEBHOOK`): the video and its text are POSTed (multipart) to a URL you control, so
-  Zapier / Make / n8n or an Upload-Post style service can post to TikTok and
-  Instagram. There is no direct TikTok or Instagram integration yet.
+  Zapier / Make / n8n or an Upload-Post style service can post to TikTok and other
+  networks. YouTube, LinkedIn, X and Instagram are posted to directly from the Social hub (below).
 
 ```bash
 .venv\Scripts\python -m recaply publish status
 .venv\Scripts\python -m recaply publish add <job id> short_00_9x16.mp4 --title "..." --at 2026-11-20T09:00
 .venv\Scripts\python -m recaply publish list        # run: uploads what is due, until Ctrl-C
 ```
+
+### Social hub: accounts, captions, thumbnails and a content calendar
+
+**Studio → Social** posts finished clips to **YouTube, LinkedIn, X and Instagram**:
+
+- **Accounts.** Connect any number of accounts per network (two YouTube channels, a
+  personal LinkedIn…). Sign-in opens in your browser and comes back to a small local page
+  on port 47620. Tokens are encrypted on disk (Windows DPAPI; Fernet elsewhere) and never
+  sent to the browser. Expired sign-ins are refreshed before each upload; when a network
+  refuses, the account shows **Reconnect**.
+- **Composer.** Pick a short or cut, tick the accounts, and write one caption for all of them
+  or tune it per network (character counters for each network's limit). **Write with AI**
+  drafts a title, caption and hashtags per network from the clip's transcript, using Ollama or
+  your cloud keys. Without AI, the clip's own copy is used.
+- **Thumbnails.** Pick one of four frames from the clip, add bold title text (Bold / Boxed /
+  No text styles, your Brand Kit colour, font and logo) and get the right size per network:
+  1280×720 for YouTube, 1080×1920 vertical, 1200×627 for LinkedIn. Or upload your own.
+- **Calendar.** Month and week views with every post's status (scheduled, posting, posted,
+  failed). Drag a post to another day to move it, click it for the live links or the error,
+  and retry. Drafts wait in the side list. Posts go out through the publish scheduler while
+  Clipforge runs; a post missed while it was closed goes out at the next start.
+
+Setup per network (developer apps, redirect URL, keys) is in `.env.example` under
+"Social hub". What each network requires:
+
+| Network | Needs | Limits |
+|---|---|---|
+| YouTube | Google Cloud OAuth client, YouTube Data API v3 | ~6 uploads/day on the default quota; custom thumbnails need a verified channel |
+| LinkedIn | App with "Share on LinkedIn" + OpenID Connect | Own profile; sign in again every 60 days |
+| X | Developer app, OAuth 2.0, **paid API plan** to post video | 280 characters |
+| Instagram | Meta app, Instagram Login, **Business/Creator account** | 100 API posts/day; cover is picked by frame |
 
 **Batch queue.** The **Queue** page takes a list of links (one per line) with shared
 options, shows every job with progress, and offers cancel (before it starts),
